@@ -1,22 +1,23 @@
 ---
 # radtest / eapol_test による認証テストクライアント
 
-test_client_packages:
+radius_test_client_packages:
   - freeradius-utils
   - eapoltest
-test_client_conf_dir: /etc/eduroam-test
+radius_test_client_conf_dir: /etc/eduroam-test
 
 # RADIUS サーバの IP アドレス（eapol_test はホスト名を解決しないため IP で指定する）
-test_client_radius_server: ""
-test_client_radius_secret: ""
+radius_test_client_radius_server: ""
+radius_test_client_radius_secret: ""
 
-test_client_anonymous_identity: anonymous@kobedenshi.ac.jp
-test_client_user: ""
-test_client_password: ""
+radius_test_client_anonymous_identity: anonymous@kobedenshi.ac.jp
+radius_test_client_user: ""
+radius_test_client_password: ""
 # 内部 Identity の realm 判定テストに使う他機関 realm
 # （検証用 LDAP ではテストユーザーにこの realm の mail も持たせ、LDAP 検索では拒否されない状態にする）
-test_client_foreign_realm: example.ac.jp
+radius_test_client_foreign_realm: example.ac.jp
 
 # サーバ証明書の検証（CA と照合するドメイン）。CA を指定しない場合は検証しない
-test_client_ca_src: ""
-test_client_server_domain: ""
+radius_test_client_ca_src: ""
+radius_test_client_server_domain: ""
+...

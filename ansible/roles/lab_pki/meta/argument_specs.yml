@@ -1,0 +1,27 @@
+---
+argument_specs:
+  main:
+    short_description: 検証用の CA と RADIUS サーバ証明書をコントローラ上に生成する
+    options:
+      lab_pki_dir:
+        type: str
+        description: 証明書・秘密鍵の出力先
+      lab_pki_key_size:
+        type: int
+        description: RSA 鍵長
+      lab_pki_organization:
+        type: str
+        description: 証明書の組織名（O）
+      lab_pki_ca_common_name:
+        type: str
+        description: CA の CN
+      lab_pki_ca_valid_days:
+        type: int
+        description: CA 証明書の有効日数
+      lab_pki_server_common_name:
+        type: str
+        description: サーバ証明書の CN と SAN
+      lab_pki_server_valid_days:
+        type: int
+        description: サーバ証明書の有効日数
+...

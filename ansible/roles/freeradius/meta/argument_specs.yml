@@ -1,0 +1,124 @@
+---
+argument_specs:
+  main:
+    short_description: FreeRADIUS を eduroam の IdP/SP として構成する
+    options:
+      freeradius_packages:
+        type: list
+        elements: str
+        description: 導入するパッケージ
+      freeradius_service:
+        type: str
+        description: systemd のサービス名
+      freeradius_binary:
+        type: str
+        description: 設定検証（-Cx）に使う実行ファイル
+      freeradius_conf_dir:
+        type: str
+        description: 設定ディレクトリ
+      freeradius_group:
+        type: str
+        description: 証明書・設定ファイルの所有グループ（FreeRADIUS の実行グループ）
+      freeradius_env_file:
+        type: str
+        description: シークレットを渡す systemd の EnvironmentFile
+      freeradius_local_realms:
+        type: list
+        elements: str
+        description: 自機関 realm（proxy.conf のローカル realm と inner-tunnel の realm 判定）
+      freeradius_clients:
+        type: list
+        elements: dict
+        description: RADIUS クライアント（NAS）
+        options:
+          name:
+            type: str
+            required: true
+            description: クライアント名
+          ipaddr:
+            type: str
+            required: true
+            description: IP アドレスまたは CIDR
+          secret_env:
+            type: str
+            required: true
+            description: 共有シークレットを格納する環境変数名（値は freeradius_secret_env で渡す）
+          require_message_authenticator:
+            type: str
+            choices: ["yes", "no", auto]
+            description: Message-Authenticator を必須にするか（既定 no）
+          nas_type:
+            type: str
+            description: NAS の種別（既定 other）
+          shortname:
+            type: str
+            description: 短縮名（既定は name）
+      freeradius_secret_env:
+        type: dict
+        no_log: true
+        description: 環境変数名と値。clients.conf / proxy.conf から $ENV{名前} で参照する
+      freeradius_ldap_backend:
+        type: str
+        choices: [openldap, google]
+        description: LDAP バックエンド（Phase 1 は openldap、Phase 2 は google）
+      freeradius_ldap_auth_method:
+        type: str
+        choices: [attribute, bind]
+        description: userPassword を取得して PAP 照合（attribute）するか、ユーザー DN で bind（bind）するか
+      freeradius_ldap_base_dn:
+        type: str
+        description: ユーザー検索のベース DN
+      freeradius_ldap_user_filter:
+        type: str
+        description: ユーザー検索フィルタ（FreeRADIUS の展開構文）
+      freeradius_ldap_server:
+        type: str
+        description: OpenLDAP サーバ
+      freeradius_ldap_port:
+        type: int
+        description: OpenLDAP のポート
+      freeradius_ldap_identity:
+        type: str
+        description: OpenLDAP に bind する DN
+      freeradius_ldap_password:
+        type: str
+        no_log: true
+        description: OpenLDAP に bind するパスワード
+      freeradius_google_ldap_user:
+        type: str
+        no_log: true
+        description: Google Secure LDAP のアクセス認証情報（ユーザー名）
+      freeradius_google_ldap_password:
+        type: str
+        no_log: true
+        description: Google Secure LDAP のアクセス認証情報（パスワード）
+      freeradius_google_ldap_cert_src:
+        type: str
+        description: コントローラ上の Google LDAP クライアント証明書
+      freeradius_google_ldap_key_src:
+        type: str
+        description: コントローラ上の Google LDAP クライアント秘密鍵
+      freeradius_google_ldap_tls_dir:
+        type: str
+        description: Google LDAP クライアント証明書の配置先
+      freeradius_tls_cert_src:
+        type: str
+        description: コントローラ上の EAP サーバ証明書
+      freeradius_tls_key_src:
+        type: str
+        description: コントローラ上の EAP サーバ秘密鍵
+      freeradius_tls_ca_src:
+        type: str
+        description: コントローラ上の CA 証明書
+      freeradius_tls_dir:
+        type: str
+        description: EAP サーバ証明書の配置先
+      freeradius_tls_min_version:
+        type: str
+        choices: ["1.2", "1.3"]
+        description: TLS の最小バージョン
+      freeradius_tls_max_version:
+        type: str
+        choices: ["1.2", "1.3"]
+        description: TLS の最大バージョン
+...

@@ -81,3 +81,4 @@
     ownca_privatekey_path: "{{ lab_pki_dir }}/ca.key"
     ownca_not_after: +{{ lab_pki_server_valid_days }}d
     mode: "0644"
+...

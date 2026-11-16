@@ -9,3 +9,4 @@ lab_pki_ca_common_name: eduroam-ca.kobedenshi.ac.jp
 lab_pki_ca_valid_days: 3650
 lab_pki_server_common_name: radius.kobedenshi.ac.jp
 lab_pki_server_valid_days: 365
+...

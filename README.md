@@ -99,8 +99,42 @@ FreeRADIUS には systemd の EnvironmentFile（`/etc/freeradius/eduroam.env`、
 | `make logs` | FreeRADIUS ログ表示（local） |
 | `make radius-debug` | FreeRADIUS をデバッグモード（`-X`）で前面実行（local） |
 | `make ldap-search` | 検証用 LDAP のエントリ表示（local） |
-| `make lint` | Ansible 構文チェック、tofu fmt / validate |
+| `make lint` | リンター（yamllint / ansible-lint / ShellCheck / shfmt / tofu fmt・validate） |
+| `make fmt` | フォーマッター（ansible-lint --fix / shfmt / tofu fmt） |
 | `make clean-pki` | 検証用 PKI を削除 |
+
+## リンター／フォーマッター
+
+対象は IaC（Ansible / OpenTofu / シェルスクリプト）。Markdown のドキュメントは対象外。
+各リンターは全ルール（オプトインを含む）を有効にし、警告もエラーとして扱う。
+
+| 対象 | リンター | フォーマッター | 設定 |
+|------|---------|---------------|------|
+| YAML | yamllint | `ansible-lint --fix` | `.yamllint` |
+| Ansible | ansible-lint（全ルール、`strict: true`） | `ansible-lint --fix` | `.ansible-lint` |
+| シェルスクリプト | ShellCheck（`enable=all`）、shfmt | shfmt（`-s` 相当の簡略化を含む） | `.shellcheckrc` / `.editorconfig` |
+| OpenTofu | `tofu fmt -check`、`tofu validate`（全環境） | `tofu fmt` | — |
+
+`# noqa` などのインライン抑止は使わず、コードを直して解消する。ツールの制約で両立しないルールだけを設定ファイルで無効化している（yamllint の `comments-indentation` / `key-ordering`）。理由は各設定ファイルに記載している。
+
+yamllint・ansible-lint・ShellCheck・shfmt は Makefile で版を固定し、`uvx` で実行する（[uv](https://docs.astral.sh/uv/) が必要）。ansible-lint は実行環境に合わせて ansible-core 2.16 を使い、コレクションは `make setup` で導入したものを参照する。
+
+```bash
+make fmt      # 書式を整える
+make -k lint  # すべての検査を実行（-k で失敗しても残りを続ける）
+```
+
+GitHub Actions（`.github/workflows/lint.yml`）も、IaC 関連のファイルを変更した push で `make -k lint` を実行する。
+
+WSL からだけコミットする場合は、git フックで `make lint` を実行できる。Windows の git からコミットするとフックがツールを見つけられず失敗するため、両方からコミットする環境では設定しない。
+
+```bash
+cat > .git/hooks/pre-commit <<'EOF'
+#!/bin/sh
+exec make lint
+EOF
+chmod +x .git/hooks/pre-commit
+```
 
 ## 認証テスト
 
@@ -131,6 +165,8 @@ FreeRADIUS には systemd の EnvironmentFile（`/etc/freeradius/eduroam.env`、
 
 ```
 .
+├── .github/workflows/
+│   └── lint.yml             # make lint を実行する CI
 ├── tofu/envs/
 │   ├── local/               # Incus（WSL2/Linux）
 │   └── proxmox/             # Proxmox VE LXC
@@ -146,6 +182,10 @@ FreeRADIUS には systemd の EnvironmentFile（`/etc/freeradius/eduroam.env`、
 │       └── lab_pki/         # 検証用 CA・サーバ証明書
 ├── scripts/
 │   └── incus-host-setup.sh  # Incus の導入
+├── .ansible-lint            # ansible-lint 設定
+├── .yamllint                # yamllint 設定
+├── .shellcheckrc            # ShellCheck 設定
+├── .editorconfig            # エディタ・shfmt 共通の書式
 ├── Makefile
 └── README.md
 ```

@@ -12,11 +12,16 @@ FreeRADIUS + Google Workspace Secure LDAP による EAP-TTLS/PAP 認証を、Ope
 - **認証方式**: EAP-TTLS/PAP（Google WorkspaceがNTハッシュ非対応のため唯一の選択肢）
 - **ホスト作成**: OpenTofu（`lxc/incus` provider でローカル Incus、`bpg/proxmox` provider で Proxmox VE LXC）
 - **構成管理**: Ansible（ansible-core 2.16+、community.general / community.crypto）
+- **静的検査**: yamllint、ansible-lint、ShellCheck / shfmt、tofu fmt / validate。全ルールを有効にし、uv（`uvx`）で版を固定して実行する。GitHub Actions でも同じ `make lint` を実行する
 - **OS**: Debian 13（全ホスト共通）
 
 ## ディレクトリ構造
 
 ```
+.github/workflows/lint.yml      # IaC 変更時に make -k lint を実行する CI
+.ansible-lint / .yamllint       # ansible-lint・yamllint 設定
+.shellcheckrc                   # ShellCheck 設定（全チェック有効）
+.editorconfig                   # エディタ・shfmt 共通の書式（シェルは 4 スペース）
 tofu/envs/
   local/                        # Incus（WSL2/Linux）に radius/ldap/client の3コンテナを作成
   proxmox/                      # Proxmox VE に LXC を作成（terraform.tfvars.example をコピーして使用）
@@ -32,6 +37,7 @@ ansible/
     group_vars/all/main.yml     # 環境ごとの変数（Phase 切替もここ）
     group_vars/all/vault.yml    # シークレット（git-ignored）
   roles/
+    <ロール>/meta/argument_specs.yml  # ロール変数の型・選択肢（ロール開始時に検証される）
     freeradius/                 # FreeRADIUS 構成
       templates/                # clients.conf / proxy.conf / mods-available/{eap,ldap,ldap_google} / sites-available/eduroam-inner-tunnel
       files/sites-available/eduroam  # 外部EAPトンネル
@@ -74,7 +80,8 @@ make down           # tofu destroy
 make logs           # FreeRADIUSログ表示（local）
 make radius-debug   # FreeRADIUS を -X で前面実行（local、Ctrl+C で通常起動に戻る）
 make ldap-search    # 検証用 OpenLDAP のエントリ表示（local）
-make lint           # ansible-playbook --syntax-check + tofu fmt -check / validate
+make lint           # リンター（yamllint / ansible-lint / ShellCheck / shfmt / tofu fmt・validate、全環境。make -k lint で全結果を表示）
+make fmt            # フォーマッター（ansible-lint --fix / shfmt / tofu fmt）
 make clean-pki      # 検証用 PKI 削除
 ```
 
@@ -85,6 +92,26 @@ FreeRADIUS の設定は `ansible/roles/freeradius/` のテンプレートが正�
 `make deploy` は冪等で、変更がなければ `changed=0` になる。
 
 ホスト構成（台数・IP・イメージ）を変える場合は `tofu/envs/<環境>/` を編集して `make infra`。
+
+IaC（`ansible/`・`tofu/`・シェルスクリプト）を変更したら `make fmt` → `make -k lint` を通す。
+
+## リンター／フォーマッターの注意事項
+
+- 対象は IaC のみ。Markdown（`docs/` など）は対象外。
+- 各リンターは全ルールを有効にし、警告もエラーとして扱う（ansible-lint はオプトインのルールを含めて `strict: true`、yamllint は全ルールを `error`、ShellCheck は `enable=all`）。
+- **インラインの抑止は使わない**（`# noqa`、`# shellcheck disable=` / `source=`、`# yamllint disable`、`.ansible-lint-ignore` など）。指摘はコードを直して解消する。
+  - どうしても直せない場合に限り、理由をコメントに書いて抑止する。
+  - 同じルールの抑止が増える場合は、設定ファイルでルールを無効化し、理由を設定ファイルにコメントで書く。
+- 設定で無効化・緩和しているもの（理由は各設定ファイルに記載）:
+  - yamllint `comments-indentation`: ansible-lint が無効を要求する（有効だと ansible-lint の yaml ルールと `--fix` が使えない）
+  - yamllint `key-ordering`: キーのアルファベット順は ansible-lint の `key-order`（タスクは `name` が先頭）と両立しない
+  - ansible-lint `only-builtins`: community.general（LDAP エントリ）と community.crypto（PKI）を `only_builtins_allow_collections` で許可
+- yamllint の主な規約: YAML は `---` で始めて `...` で終える。文字列は必要なときだけ二重引用符で囲む（`quoted-strings: only-when-needed`）。1行は160文字まで。
+- ansible-lint は実行環境に合わせて ansible-core 2.16 で動かし、`offline: true` のため requirements.yml を自分では導入しない（ローカルは `make setup`、CI はワークフローで導入する）。
+- ロールの変数・register 名・ループ変数にはロール名を接頭辞に付ける（`radius_test_client_*`、内部用は `_openldap_test_*` のように先頭に `_`）。ループは `loop_control.loop_var` で名前を付け、暗黙の `item` は使わない。ansible-lint の `var-naming[no-role-prefix]` と `loop-var-prefix` が検査する。
+- ロール変数を追加・変更したら `meta/argument_specs.yml` も更新する（`role-argument-spec`）。型・選択肢はロール開始時に検証される。値の組み合わせや空文字の検査はロールの assert で行う。
+- YAML のリスト末尾にコメントを置かない。`ansible-lint --fix` がコメントを行頭に移す。コメントアウトした例はキーの前に書く。
+- テンプレートが出力する FreeRADIUS 設定の正しさはリンターでは分からない。`make deploy` 時のハンドラ（`freeradius -Cx`）が検証する。
 
 ## テスト用認証情報
 

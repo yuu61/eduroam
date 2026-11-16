@@ -5,8 +5,18 @@
 set -u
 
 ENV_FILE="${ENV_FILE:-/etc/eduroam-test/test.env}"
-# shellcheck source=/dev/null
-. "${ENV_FILE}"
+
+# KEY=VALUE 形式の設定を読み込む（シェルとして評価しない）
+while IFS= read -r line; do
+    case "${line}" in
+        RADIUS_SERVER=*) RADIUS_SERVER="${line#*=}" ;;
+        RADIUS_SECRET=*) RADIUS_SECRET="${line#*=}" ;;
+        TEST_USER=*) TEST_USER="${line#*=}" ;;
+        TEST_PASSWORD=*) TEST_PASSWORD="${line#*=}" ;;
+        CONF_DIR=*) CONF_DIR="${line#*=}" ;;
+        *) ;;
+    esac
+done <"${ENV_FILE}"
 
 : "${RADIUS_SERVER:?}" "${RADIUS_SECRET:?}" "${TEST_USER:?}" "${TEST_PASSWORD:?}" "${CONF_DIR:?}"
 
@@ -55,11 +65,11 @@ check "テスト4: 自機関以外の realm の内部 Identity は拒否され�
     eapol eapol_test-foreign-realm.conf
 
 echo "========================================"
-if [ "${failures}" -eq 0 ]; then
+if [[ ${failures} -eq 0 ]]; then
     echo " 全テスト PASS"
 else
     echo " FAIL: ${failures} 件"
 fi
 echo "========================================"
 
-[ "${failures}" -eq 0 ]
+[[ ${failures} -eq 0 ]]

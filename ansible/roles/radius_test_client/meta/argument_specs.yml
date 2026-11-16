@@ -1,0 +1,39 @@
+---
+argument_specs:
+  main:
+    short_description: radtest / eapol_test による認証テストクライアントを構成する
+    options:
+      radius_test_client_packages:
+        type: list
+        elements: str
+        description: 導入するパッケージ
+      radius_test_client_conf_dir:
+        type: str
+        description: テスト設定の配置先
+      radius_test_client_radius_server:
+        type: str
+        description: RADIUS サーバの IPv4 アドレス（eapol_test はホスト名を解決しない）
+      radius_test_client_radius_secret:
+        type: str
+        no_log: true
+        description: RADIUS 共有シークレット
+      radius_test_client_anonymous_identity:
+        type: str
+        description: 外部 Identity
+      radius_test_client_user:
+        type: str
+        description: テストユーザー（内部 Identity）
+      radius_test_client_password:
+        type: str
+        no_log: true
+        description: テストユーザーのパスワード
+      radius_test_client_foreign_realm:
+        type: str
+        description: realm 判定テストに使う他機関 realm
+      radius_test_client_ca_src:
+        type: str
+        description: コントローラ上の CA 証明書（空ならサーバ証明書を検証しない）
+      radius_test_client_server_domain:
+        type: str
+        description: サーバ証明書と照合するドメイン
+...

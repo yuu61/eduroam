@@ -4,7 +4,9 @@
 # 秘密情報は同じディレクトリの vault.yml（vault.yml.example から作成し ansible-vault encrypt で暗号化）に置く
 
 eduroam_env: proxmox
-eduroam_secrets_dir: "{{ lookup('ansible.builtin.env', 'EDUROAM_SECRETS_DIR', default=lookup('ansible.builtin.env', 'HOME') ~ '/.local/share/eduroam/' ~ eduroam_env) }}"
+# 証明書・秘密鍵の置き場所（環境変数 EDUROAM_SECRETS_DIR で変更可）
+_eduroam_default_secrets_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/.local/share/eduroam/{{ eduroam_env }}"
+eduroam_secrets_dir: "{{ lookup('ansible.builtin.env', 'EDUROAM_SECRETS_DIR', default=_eduroam_default_secrets_dir) }}"
 
 _radius_ipv4: "{{ hostvars[groups['radius'][0]].service_ipv4 }}"
 _ldap_ipv4: "{{ hostvars[groups['ldap_test'][0]].service_ipv4 if groups.get('ldap_test') else 'localhost' }}"
@@ -23,6 +25,12 @@ freeradius_tls_ca_src: "{{ lab_pki_dir }}/ca.crt"
 # --- FreeRADIUS ---
 freeradius_local_realms:
   - kobedenshi.ac.jp
+# Phase 5: AP（コントローラ）は次の形式で freeradius_clients に追加する。
+# シークレットは freeradius_secret_env に追加して vault で管理する
+#   - name: ap-01
+#     ipaddr: 192.0.2.50
+#     secret_env: AP_SECRET
+#     require_message_authenticator: "yes"
 freeradius_clients:
   - name: localhost
     ipaddr: 127.0.0.1
@@ -30,11 +38,6 @@ freeradius_clients:
   - name: lab-network
     ipaddr: "{{ lab_network_cidr }}"
     secret_env: RADIUS_SECRET
-  # Phase 5: AP（コントローラ）を追加する。シークレットは freeradius_secret_env に追加して vault で管理する
-  # - name: ap-01
-  #   ipaddr: 192.0.2.50
-  #   secret_env: AP_SECRET
-  #   require_message_authenticator: "yes"
 freeradius_secret_env:
   RADIUS_SECRET: "{{ vault_radius_secret }}"
 
@@ -73,10 +76,11 @@ openldap_test_users:
     password: "{{ vault_test_user_passwords.testuser2 }}"
 
 # --- テストクライアント（test_client グループがある場合のみ使用） ---
-test_client_radius_server: "{{ _radius_ipv4 }}"
-test_client_radius_secret: "{{ vault_radius_secret }}"
-test_client_anonymous_identity: anonymous@kobedenshi.ac.jp
-test_client_user: testuser1@kobedenshi.ac.jp
-test_client_password: "{{ vault_test_user_passwords.testuser1 }}"
-test_client_ca_src: "{{ freeradius_tls_ca_src }}"
-test_client_server_domain: radius.kobedenshi.ac.jp
+radius_test_client_radius_server: "{{ _radius_ipv4 }}"
+radius_test_client_radius_secret: "{{ vault_radius_secret }}"
+radius_test_client_anonymous_identity: anonymous@kobedenshi.ac.jp
+radius_test_client_user: testuser1@kobedenshi.ac.jp
+radius_test_client_password: "{{ vault_test_user_passwords.testuser1 }}"
+radius_test_client_ca_src: "{{ freeradius_tls_ca_src }}"
+radius_test_client_server_domain: radius.kobedenshi.ac.jp
+...

@@ -4,7 +4,7 @@
 openldap_test_domain: kobedenshi.ac.jp
 openldap_test_organization: Kobe Denshi
 openldap_test_base_dn: dc=kobedenshi,dc=ac,dc=jp
-openldap_test_admin_dn: "cn=admin,{{ openldap_test_base_dn }}"
+openldap_test_admin_dn: cn=admin,{{ openldap_test_base_dn }}
 openldap_test_admin_password: ""
 
 openldap_test_group:
@@ -13,3 +13,4 @@ openldap_test_group:
 
 # uid / mail（文字列またはリスト）/ password / uid_number / given_name
 openldap_test_users: []
+...

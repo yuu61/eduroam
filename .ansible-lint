@@ -1,0 +1,39 @@
+---
+# ansible-lint 設定（make lint / make fmt から実行する）
+# 方針: 全ルールを有効にし、警告もエラーとして扱う
+
+# プロファイルで絞らず、オプトインのルールも有効にする
+enable_list:
+  - empty-string-compare
+  - galaxy-version-incorrect
+  - jinja-template-extension
+  - name[prefix]
+  - no-log-password
+  - no-prompting
+  - no-same-owner
+  - only-builtins
+  - role-argument-spec
+skip_list: []
+warn_list: []
+strict: true
+
+# only-builtins の例外。LDAP エントリ管理（community.general）と PKI 生成（community.crypto）は
+# builtin に代替モジュールがない
+only_builtins_allow_collections:
+  - community.general
+  - community.crypto
+
+# loop-var-prefix を有効にする（ロール内のループ変数はロール名を接頭辞にする）
+loop_var_prefix: ^(__|{role}_)
+
+# コレクションは make setup（CI ではワークフロー）で導入済みのものを使い、
+# ansible-lint 自身には requirements.yml をインストールさせない
+offline: true
+
+exclude_paths:
+  - .ansible/
+  - tofu/
+  # OpenTofu が生成する inventory と、暗号化され得るシークレット
+  - ansible/inventories/*/hosts.yml
+  - ansible/inventories/*/group_vars/all/vault.yml
+...

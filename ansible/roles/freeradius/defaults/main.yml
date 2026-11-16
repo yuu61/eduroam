@@ -38,12 +38,12 @@ freeradius_ldap_auth_method: "{{ 'bind' if freeradius_ldap_backend == 'google' e
 freeradius_ldap_base_dn: dc=kobedenshi,dc=ac,dc=jp
 # 内部 Identity（user@realm）で mail 属性を検索する
 # FreeRADIUS の展開構文 %{...} を Jinja2 に解釈させないため !unsafe を付ける
-freeradius_ldap_user_filter: !unsafe "(mail=%{User-Name})"
+freeradius_ldap_user_filter: !unsafe (mail=%{User-Name})
 
 # OpenLDAP（Phase 1）
 freeradius_ldap_server: localhost
 freeradius_ldap_port: 389
-freeradius_ldap_identity: "cn=admin,{{ freeradius_ldap_base_dn }}"
+freeradius_ldap_identity: cn=admin,{{ freeradius_ldap_base_dn }}
 freeradius_ldap_password: ""
 
 # Google Workspace Secure LDAP（Phase 2）
@@ -62,3 +62,4 @@ freeradius_tls_ca_src: ""
 freeradius_tls_dir: "{{ freeradius_conf_dir }}/certs/eduroam"
 freeradius_tls_min_version: "1.2"
 freeradius_tls_max_version: "1.3"
+...

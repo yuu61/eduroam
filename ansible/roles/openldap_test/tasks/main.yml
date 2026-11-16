@@ -11,7 +11,7 @@
 - name: Check whether slapd is installed
   ansible.builtin.command:
     cmd: dpkg-query -W -f=${Status} slapd
-  register: _slapd_status
+  register: _openldap_test_slapd_status
   changed_when: false
   failed_when: false
 
@@ -19,9 +19,9 @@
 - name: Preseed slapd
   ansible.builtin.debconf:
     name: slapd
-    question: "{{ item.question }}"
-    vtype: "{{ item.vtype }}"
-    value: "{{ item.value }}"
+    question: "{{ openldap_test_debconf.question }}"
+    vtype: "{{ openldap_test_debconf.vtype }}"
+    value: "{{ openldap_test_debconf.value }}"
   loop:
     - { question: slapd/no_configuration, vtype: boolean, value: "false" }
     - { question: slapd/domain, vtype: string, value: "{{ openldap_test_domain }}" }
@@ -30,7 +30,9 @@
     - { question: slapd/password2, vtype: password, value: "{{ openldap_test_admin_password }}" }
     - { question: slapd/purge_database, vtype: boolean, value: "true" }
     - { question: slapd/move_old_database, vtype: boolean, value: "true" }
-  when: "'install ok installed' not in _slapd_status.stdout"
+  loop_control:
+    loop_var: openldap_test_debconf
+  when: "'install ok installed' not in _openldap_test_slapd_status.stdout"
   no_log: true
 
 - name: Install OpenLDAP packages
@@ -59,48 +61,52 @@
   block:
     - name: Create organizational units
       community.general.ldap_entry:
-        dn: ou={{ item }},{{ openldap_test_base_dn }}
+        dn: ou={{ openldap_test_ou }},{{ openldap_test_base_dn }}
         objectClass: organizationalUnit
         attributes:
-          ou: "{{ item }}"
+          ou: "{{ openldap_test_ou }}"
       loop:
         - people
         - groups
+      loop_control:
+        loop_var: openldap_test_ou
 
     - name: Create test users
       community.general.ldap_entry:
-        dn: uid={{ item.uid }},ou=people,{{ openldap_test_base_dn }}
+        dn: uid={{ openldap_test_user.uid }},ou=people,{{ openldap_test_base_dn }}
         objectClass:
           - inetOrgPerson
           - posixAccount
           - shadowAccount
         attributes:
-          uid: "{{ item.uid }}"
+          uid: "{{ openldap_test_user.uid }}"
           sn: Test
-          givenName: "{{ item.given_name }}"
-          cn: Test {{ item.given_name }}
-          displayName: Test {{ item.given_name }}
-          uidNumber: "{{ item.uid_number }}"
+          givenName: "{{ openldap_test_user.given_name }}"
+          cn: Test {{ openldap_test_user.given_name }}
+          displayName: Test {{ openldap_test_user.given_name }}
+          uidNumber: "{{ openldap_test_user.uid_number }}"
           gidNumber: "{{ openldap_test_group.gid_number }}"
           loginShell: /bin/bash
-          homeDirectory: /home/{{ item.uid }}
-          mail: "{{ item.mail }}"
-          userPassword: "{{ item.password }}"
+          homeDirectory: /home/{{ openldap_test_user.uid }}
+          mail: "{{ openldap_test_user.mail }}"
+          userPassword: "{{ openldap_test_user.password }}"
       loop: "{{ openldap_test_users }}"
       loop_control:
-        label: "{{ item.uid }}"
+        loop_var: openldap_test_user
+        label: "{{ openldap_test_user.uid }}"
       no_log: true
 
     - name: Keep test user passwords and mail addresses in sync
       community.general.ldap_attrs:
-        dn: uid={{ item.uid }},ou=people,{{ openldap_test_base_dn }}
+        dn: uid={{ openldap_test_user.uid }},ou=people,{{ openldap_test_base_dn }}
         attributes:
-          userPassword: "{{ item.password }}"
-          mail: "{{ item.mail }}"
+          userPassword: "{{ openldap_test_user.password }}"
+          mail: "{{ openldap_test_user.mail }}"
         state: exact
       loop: "{{ openldap_test_users }}"
       loop_control:
-        label: "{{ item.uid }}"
+        loop_var: openldap_test_user
+        label: "{{ openldap_test_user.uid }}"
       no_log: true
 
     - name: Create test group
@@ -117,3 +123,4 @@
         attributes:
           memberUid: "{{ openldap_test_users | map(attribute='uid') | list }}"
         state: exact
+...

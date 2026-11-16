@@ -8,7 +8,7 @@ LAB_BRIDGE="${LAB_BRIDGE:-eduroambr0}"
 STORAGE_POOL="${STORAGE_POOL:-default}"
 TARGET_USER="${SUDO_USER:-${USER}}"
 
-if [ "$(id -u)" -ne 0 ]; then
+if [[ ${EUID} -ne 0 ]]; then
     echo "root で実行してください（例: sudo $0）" >&2
     exit 1
 fi
@@ -28,7 +28,7 @@ if ! incus storage show "${STORAGE_POOL}" >/dev/null 2>&1; then
 fi
 
 # 3. 実行ユーザーを incus-admin グループに追加
-if [ "${TARGET_USER}" != "root" ] && ! id -nG "${TARGET_USER}" | tr ' ' '\n' | grep -qx incus-admin; then
+if [[ ${TARGET_USER} != "root" ]] && ! id -nG "${TARGET_USER}" | tr ' ' '\n' | grep -qx incus-admin; then
     echo "--- ${TARGET_USER} を incus-admin グループに追加 ---"
     usermod -aG incus-admin "${TARGET_USER}"
     echo "グループ変更は新しいログインセッションから有効になります（WSL は wsl --terminate <distro> で再起動）。"
@@ -37,7 +37,7 @@ fi
 # 4. Docker が FORWARD を DROP にしている環境では、検証用ブリッジの転送を許可する
 if command -v iptables >/dev/null 2>&1 && iptables -S DOCKER-USER >/dev/null 2>&1; then
     echo "--- Docker の FORWARD 制限を ${LAB_BRIDGE} について解除（systemd ユニット） ---"
-    cat > /etc/systemd/system/eduroam-lab-forward.service <<EOF
+    cat >/etc/systemd/system/eduroam-lab-forward.service <<EOF
 [Unit]
 Description=Allow forwarding for the eduroam lab bridge (${LAB_BRIDGE}) past Docker's FORWARD policy
 After=docker.service

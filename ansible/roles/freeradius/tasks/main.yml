@@ -11,12 +11,11 @@
       }}
   no_log: true
 
-# assert の出力には式のみが表示され、変数の値は表示されない
+# 型と選択肢は meta/argument_specs.yml で検証する。ここでは組み合わせと値の有無を確認する
+# （assert の出力には式のみが表示され、変数の値は表示されない）
 - name: Check role variables
   ansible.builtin.assert:
     that:
-      - freeradius_ldap_backend in ['openldap', 'google']
-      - freeradius_ldap_auth_method in ['attribute', 'bind']
       - not (freeradius_ldap_backend == 'google' and freeradius_ldap_auth_method == 'attribute')
       - freeradius_tls_cert_src | length > 0
       - freeradius_tls_key_src | length > 0
@@ -46,17 +45,18 @@
 
 - name: Install EAP server certificate and CA
   ansible.builtin.copy:
-    src: "{{ item.src }}"
-    dest: "{{ freeradius_tls_dir }}/{{ item.dest }}"
+    src: "{{ freeradius_cert.src }}"
+    dest: "{{ freeradius_tls_dir }}/{{ freeradius_cert.dest }}"
     owner: root
     group: "{{ freeradius_group }}"
-    mode: "{{ item.mode }}"
+    mode: "{{ freeradius_cert.mode }}"
   loop:
     - { src: "{{ freeradius_tls_cert_src }}", dest: server.crt, mode: "0644" }
     - { src: "{{ freeradius_tls_key_src }}", dest: server.key, mode: "0640" }
     - { src: "{{ freeradius_tls_ca_src }}", dest: ca.crt, mode: "0644" }
   loop_control:
-    label: "{{ item.dest }}"
+    loop_var: freeradius_cert
+    label: "{{ freeradius_cert.dest }}"
   notify: Restart FreeRADIUS
 
 - name: Install Google Secure LDAP client certificate
@@ -72,8 +72,8 @@
 
     - name: Copy Google LDAP client certificate and key
       ansible.builtin.copy:
-        src: "{{ item.src }}"
-        dest: "{{ freeradius_google_ldap_tls_dir }}/{{ item.dest }}"
+        src: "{{ freeradius_cert.src }}"
+        dest: "{{ freeradius_google_ldap_tls_dir }}/{{ freeradius_cert.dest }}"
         owner: root
         group: "{{ freeradius_group }}"
         mode: "0640"
@@ -81,7 +81,8 @@
         - { src: "{{ freeradius_google_ldap_cert_src }}", dest: client.crt }
         - { src: "{{ freeradius_google_ldap_key_src }}", dest: client.key }
       loop_control:
-        label: "{{ item.dest }}"
+        loop_var: freeradius_cert
+        label: "{{ freeradius_cert.dest }}"
       notify: Restart FreeRADIUS
 
 - name: Write secret environment file
@@ -116,8 +117,8 @@
 
 - name: Render FreeRADIUS configuration templates
   ansible.builtin.template:
-    src: "{{ item }}.j2"
-    dest: "{{ freeradius_conf_dir }}/{{ item }}"
+    src: "{{ freeradius_template }}.j2"
+    dest: "{{ freeradius_conf_dir }}/{{ freeradius_template }}"
     owner: root
     group: "{{ freeradius_group }}"
     mode: "0640"
@@ -128,23 +129,27 @@
     - mods-available/ldap
     - mods-available/ldap_google
     - sites-available/eduroam-inner-tunnel
+  loop_control:
+    loop_var: freeradius_template
   notify: Restart FreeRADIUS
 
 - name: Copy static FreeRADIUS configuration files
   ansible.builtin.copy:
-    src: "{{ item }}"
-    dest: "{{ freeradius_conf_dir }}/{{ item }}"
+    src: "{{ freeradius_file }}"
+    dest: "{{ freeradius_conf_dir }}/{{ freeradius_file }}"
     owner: root
     group: "{{ freeradius_group }}"
     mode: "0640"
   loop:
     - sites-available/eduroam
+  loop_control:
+    loop_var: freeradius_file
   notify: Restart FreeRADIUS
 
 - name: Enable eduroam modules and sites
   ansible.builtin.file:
-    src: ../{{ item.kind }}-available/{{ item.name }}
-    dest: "{{ freeradius_conf_dir }}/{{ item.kind }}-enabled/{{ item.name }}"
+    src: ../{{ freeradius_link.kind }}-available/{{ freeradius_link.name }}
+    dest: "{{ freeradius_conf_dir }}/{{ freeradius_link.kind }}-enabled/{{ freeradius_link.name }}"
     state: link
     owner: root
     group: "{{ freeradius_group }}"
@@ -155,20 +160,24 @@
     - { kind: sites, name: eduroam }
     - { kind: sites, name: eduroam-inner-tunnel }
   loop_control:
-    label: "{{ item.kind }}-enabled/{{ item.name }}"
+    loop_var: freeradius_link
+    label: "{{ freeradius_link.kind }}-enabled/{{ freeradius_link.name }}"
   notify: Restart FreeRADIUS
 
 - name: Disable stock sites and the unused LDAP module
   ansible.builtin.file:
-    path: "{{ freeradius_conf_dir }}/{{ item }}"
+    path: "{{ freeradius_conf_dir }}/{{ freeradius_link }}"
     state: absent
   loop:
     - sites-enabled/default
     - sites-enabled/inner-tunnel
     - mods-enabled/{{ 'ldap' if _freeradius_ldap_module == 'ldap_google' else 'ldap_google' }}
+  loop_control:
+    loop_var: freeradius_link
   notify: Restart FreeRADIUS
 
 - name: Enable FreeRADIUS service
   ansible.builtin.systemd_service:
     name: "{{ freeradius_service }}"
     enabled: true
+...

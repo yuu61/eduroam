@@ -21,3 +21,4 @@
         that: _tests.rc == 0
         fail_msg: 認証テストに失敗しました（上の出力を確認してください）。
         success_msg: 全テスト PASS
+...

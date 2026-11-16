@@ -1,0 +1,2 @@
+# ShellCheck 設定: オプションのチェックも含めて全て有効にする
+enable=all
