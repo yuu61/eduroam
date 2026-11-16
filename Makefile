@@ -1,67 +1,89 @@
-DOCKER_DIR := docker
-COMPOSE := docker compose -f $(DOCKER_DIR)/docker-compose.yml --env-file $(DOCKER_DIR)/.env
+# eduroam RADIUS 環境（OpenTofu + Ansible）
+# Linux / WSL2 上で実行する。ENV_NAME で環境を選ぶ（local: Incus / proxmox: Proxmox VE）
 
-# .envから変数を読み込み（Makeターゲット内で使用）
--include $(DOCKER_DIR)/.env
+ENV_NAME ?= local
 
-.PHONY: setup build up down restart logs test-radtest test-eapol test test-all certs clean
+TOFU_DIR    := tofu/envs/$(ENV_NAME)
+INV_DIR     := ansible/inventories/$(ENV_NAME)
+INVENTORY   := $(INV_DIR)/hosts.yml
+VAULT_FILE  := $(INV_DIR)/group_vars/all/vault.yml
+SECRETS_DIR ?= $(HOME)/.local/share/eduroam/$(ENV_NAME)
 
-# 初期セットアップ
+# /mnt/c 配下（ワールド書き込み可能）でも ansible.cfg を確実に読ませる
+export ANSIBLE_CONFIG := $(CURDIR)/ansible/ansible.cfg
+export EDUROAM_SECRETS_DIR := $(SECRETS_DIR)
+
+PLAYBOOK := ansible-playbook -i $(INVENTORY) $(ANSIBLE_ARGS)
+# local は使い捨てのため承認なしで apply する
+TOFU_APPLY_ARGS ?= $(if $(filter local,$(ENV_NAME)),-auto-approve,)
+
+# local 環境のコンテナ名
+RADIUS_INSTANCE ?= eduroam-radius
+LDAP_INSTANCE   ?= eduroam-ldap
+
+.PHONY: help incus-host setup infra plan deploy up test down logs radius-debug ldap-search lint clean-pki
+
+help:
+	@echo "使い方: make <target> [ENV_NAME=local|proxmox]"
+	@echo "  incus-host    ホストに Incus を導入（local の初回のみ・sudo）"
+	@echo "  setup         Ansible コレクション導入、vault.yml 作成、tofu init"
+	@echo "  plan          tofu plan"
+	@echo "  infra         tofu apply（コンテナ作成と inventory 生成）"
+	@echo "  deploy        Ansible で構成（設定変更の反映もこれ）"
+	@echo "  up            infra + deploy"
+	@echo "  test          認証テスト（radtest / eapol_test）"
+	@echo "  down          tofu destroy"
+	@echo "  logs          FreeRADIUS のログ（local）"
+	@echo "  radius-debug  FreeRADIUS をデバッグモード（-X）で前面実行（local）"
+	@echo "  ldap-search   検証用 OpenLDAP のエントリ表示（local）"
+	@echo "  lint          構文チェック（ansible / tofu）"
+	@echo "  clean-pki     検証用 PKI を削除（次回 deploy で再生成）"
+
+incus-host:
+	sudo bash scripts/incus-host-setup.sh
+
 setup:
-	bash scripts/setup.sh
+	ansible-galaxy collection install -r ansible/requirements.yml
+	@if [ ! -f $(VAULT_FILE) ]; then \
+		cp $(INV_DIR)/vault.yml.example $(VAULT_FILE); \
+		echo "$(VAULT_FILE) を作成しました。シークレットを変更してください。"; \
+	fi
+	tofu -chdir=$(TOFU_DIR) init
 
-# 証明書生成
-certs:
-	bash scripts/generate-certs.sh
+plan:
+	tofu -chdir=$(TOFU_DIR) plan
 
-# Dockerビルド
-build:
-	$(COMPOSE) build
+infra:
+	tofu -chdir=$(TOFU_DIR) apply $(TOFU_APPLY_ARGS)
 
-# Docker操作
-up:
-	$(COMPOSE) up -d
+deploy:
+	$(PLAYBOOK) ansible/playbooks/site.yml
 
-up-debug:
-	$(COMPOSE) up
+up: infra deploy
+
+test:
+	$(PLAYBOOK) ansible/playbooks/test.yml
 
 down:
-	$(COMPOSE) down
-
-restart:
-	$(COMPOSE) restart
+	tofu -chdir=$(TOFU_DIR) destroy $(TOFU_APPLY_ARGS)
 
 logs:
-	$(COMPOSE) logs -f freeradius
+	incus exec $(RADIUS_INSTANCE) -- journalctl -u freeradius -f
 
-logs-all:
-	$(COMPOSE) logs -f
+# Ctrl+C で終了すると通常のサービスとして再起動する
+radius-debug:
+	incus exec $(RADIUS_INSTANCE) -- systemctl stop freeradius
+	-incus exec -t $(RADIUS_INSTANCE) -- systemd-run --quiet --pty --collect \
+		-p EnvironmentFile=/etc/freeradius/eduroam.env /usr/sbin/freeradius -X
+	incus exec $(RADIUS_INSTANCE) -- systemctl start freeradius
 
-# テスト
-test-radtest:
-	$(COMPOSE) exec test-client radtest $(TEST_USER) $(TEST_PASSWORD) freeradius 0 $(RADIUS_SECRET)
-
-test-eapol:
-	$(COMPOSE) exec test-client eapol_test -c /scripts/eapol_test.conf -s $(RADIUS_SECRET) -a freeradius
-
-test: test-radtest
-
-test-all:
-	$(COMPOSE) exec test-client bash /scripts/test-all.sh
-
-# LDAP確認
 ldap-search:
-	$(COMPOSE) exec openldap ldapsearch -x -H ldap://localhost -b "dc=kobedenshi,dc=ac,dc=jp" -D "cn=admin,dc=kobedenshi,dc=ac,dc=jp" -w $(LDAP_ADMIN_PASSWORD)
+	incus exec $(LDAP_INSTANCE) -- ldapsearch -LLL -Q -H ldapi:/// -Y EXTERNAL -b dc=kobedenshi,dc=ac,dc=jp
 
-# クリーンアップ
-clean:
-	$(COMPOSE) down -v
+lint:
+	ansible-playbook -i $(INVENTORY) --syntax-check ansible/playbooks/site.yml ansible/playbooks/test.yml
+	tofu -chdir=$(TOFU_DIR) fmt -check
+	tofu -chdir=$(TOFU_DIR) validate
 
-clean-certs:
-	rm -f $(DOCKER_DIR)/freeradius/raddb/certs/*.pem
-	rm -f $(DOCKER_DIR)/freeradius/raddb/certs/*.key
-	rm -f $(DOCKER_DIR)/freeradius/raddb/certs/*.crt
-	rm -f $(DOCKER_DIR)/freeradius/raddb/certs/*.csr
-	rm -f $(DOCKER_DIR)/freeradius/raddb/certs/dh
-	rm -f $(DOCKER_DIR)/freeradius/raddb/certs/serial*
-	rm -f $(DOCKER_DIR)/freeradius/raddb/certs/index.*
+clean-pki:
+	rm -rf $(SECRETS_DIR)/pki

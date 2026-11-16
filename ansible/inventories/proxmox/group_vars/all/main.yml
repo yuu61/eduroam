@@ -1,0 +1,82 @@
+---
+# Proxmox VE 上の LXC 環境
+# hosts.yml は tofu/envs/proxmox が生成する（service_ipv4 / lab_network_cidr を含む）
+# 秘密情報は同じディレクトリの vault.yml（vault.yml.example から作成し ansible-vault encrypt で暗号化）に置く
+
+eduroam_env: proxmox
+eduroam_secrets_dir: "{{ lookup('ansible.builtin.env', 'EDUROAM_SECRETS_DIR', default=lookup('ansible.builtin.env', 'HOME') ~ '/.local/share/eduroam/' ~ eduroam_env) }}"
+
+_radius_ipv4: "{{ hostvars[groups['radius'][0]].service_ipv4 }}"
+_ldap_ipv4: "{{ hostvars[groups['ldap_test'][0]].service_ipv4 if groups.get('ldap_test') else 'localhost' }}"
+
+# --- サーバ証明書 ---
+# 検証段階は lab_pki で自己署名証明書を生成する。
+# UPKI 証明書の取得後は lab_pki_enabled: false にして freeradius_tls_* に
+# UPKI のサーバ証明書（中間 CA を連結したもの）・秘密鍵・CA 証明書のパスを指定する
+lab_pki_enabled: true
+lab_pki_dir: "{{ eduroam_secrets_dir }}/pki"
+
+freeradius_tls_cert_src: "{{ lab_pki_dir }}/server.crt"
+freeradius_tls_key_src: "{{ lab_pki_dir }}/server.key"
+freeradius_tls_ca_src: "{{ lab_pki_dir }}/ca.crt"
+
+# --- FreeRADIUS ---
+freeradius_local_realms:
+  - kobedenshi.ac.jp
+freeradius_clients:
+  - name: localhost
+    ipaddr: 127.0.0.1
+    secret_env: RADIUS_SECRET
+  - name: lab-network
+    ipaddr: "{{ lab_network_cidr }}"
+    secret_env: RADIUS_SECRET
+  # Phase 5: AP（コントローラ）を追加する。シークレットは freeradius_secret_env に追加して vault で管理する
+  # - name: ap-01
+  #   ipaddr: 192.0.2.50
+  #   secret_env: AP_SECRET
+  #   require_message_authenticator: "yes"
+freeradius_secret_env:
+  RADIUS_SECRET: "{{ vault_radius_secret }}"
+
+# Phase 1: openldap / Phase 2: google
+freeradius_ldap_backend: openldap
+freeradius_ldap_base_dn: dc=kobedenshi,dc=ac,dc=jp
+freeradius_ldap_server: "{{ _ldap_ipv4 }}"
+freeradius_ldap_identity: cn=admin,dc=kobedenshi,dc=ac,dc=jp
+freeradius_ldap_password: "{{ vault_ldap_admin_password | default('') }}"
+
+# Phase 2（freeradius_ldap_backend: google のとき使用）
+# freeradius_google_ldap_user: "{{ vault_google_ldap_user }}"
+# freeradius_google_ldap_password: "{{ vault_google_ldap_password }}"
+# freeradius_google_ldap_cert_src: "{{ eduroam_secrets_dir }}/google/client.crt"
+# freeradius_google_ldap_key_src: "{{ eduroam_secrets_dir }}/google/client.key"
+
+# --- 検証用 OpenLDAP（ldap_test グループがある場合のみ使用） ---
+openldap_test_domain: kobedenshi.ac.jp
+openldap_test_organization: Kobe Denshi
+openldap_test_base_dn: dc=kobedenshi,dc=ac,dc=jp
+openldap_test_admin_password: "{{ vault_ldap_admin_password | default('') }}"
+openldap_test_users:
+  - uid: testuser1
+    given_name: User1
+    uid_number: 10001
+    # example.ac.jp の mail は、他 realm の内部 Identity が LDAP 検索ではなく
+    # inner-tunnel の realm 判定で拒否されることをテスト4で確認するためのもの
+    mail:
+      - testuser1@kobedenshi.ac.jp
+      - testuser1@example.ac.jp
+    password: "{{ vault_test_user_passwords.testuser1 }}"
+  - uid: testuser2
+    given_name: User2
+    uid_number: 10002
+    mail: testuser2@kobedenshi.ac.jp
+    password: "{{ vault_test_user_passwords.testuser2 }}"
+
+# --- テストクライアント（test_client グループがある場合のみ使用） ---
+test_client_radius_server: "{{ _radius_ipv4 }}"
+test_client_radius_secret: "{{ vault_radius_secret }}"
+test_client_anonymous_identity: anonymous@kobedenshi.ac.jp
+test_client_user: testuser1@kobedenshi.ac.jp
+test_client_password: "{{ vault_test_user_passwords.testuser1 }}"
+test_client_ca_src: "{{ freeradius_tls_ca_src }}"
+test_client_server_domain: radius.kobedenshi.ac.jp

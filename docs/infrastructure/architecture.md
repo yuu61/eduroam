@@ -111,19 +111,27 @@ Google Workspace / Azure AD いずれもNTパスワードハッシュを提供�
 
 ## 5. コンポーネント構成
 
-### 5.1 検証環境（Docker）
+### 5.1 検証環境（Incus / OpenTofu + Ansible）
+
+WSL2 または Linux 上の Incus に Debian 13 のシステムコンテナを3台作成する（`tofu/envs/local`）。構成は Ansible ロールで行い、Proxmox VE の LXC（`tofu/envs/proxmox`）にも同じロールを適用する。
 
 ```mermaid
 graph LR
-    subgraph "Docker Network: eduroam-net"
-        FR["freeradius<br>FreeRADIUS 3.2.6<br>:1812/udp, :1813/udp"]
-        OL["openldap<br>OpenLDAP<br>:389"]
-        TC["test-client<br>radtest<br>eapol_test"]
+    subgraph "Incus bridge: eduroambr0 (10.180.0.0/24)"
+        FR["eduroam-radius<br>FreeRADIUS 3.2.7<br>10.180.0.10<br>:1812/udp, :1813/udp"]
+        OL["eduroam-ldap<br>OpenLDAP slapd<br>10.180.0.11 :389"]
+        TC["eduroam-client<br>radtest<br>eapol_test<br>10.180.0.12"]
     end
 
     FR -- "LDAP検索/bind" --> OL
     TC -- "RADIUS<br>Access-Request" --> FR
 ```
+
+| レイヤ | ツール | 管理対象 |
+|--------|--------|---------|
+| ホスト作成 | OpenTofu | Incus ネットワーク・コンテナ / Proxmox LXC、Ansible inventory の生成 |
+| 構成管理 | Ansible | FreeRADIUS・slapd・テストクライアントのパッケージと設定、検証用 PKI |
+| シークレット | Ansible Vault | RADIUS 共有シークレット、LDAP 認証情報（FreeRADIUS へは EnvironmentFile 経由） |
 
 ### 5.2 本番環境（想定）
 
@@ -155,8 +163,8 @@ graph TD
         end
 
         subgraph "server eduroam-inner-tunnel（内部認証）"
-            I_AUTH["authorize: suffix → realm検証 → ldap → pap"]
-            I_AUTHN["authenticate: PAP (ldap bind)"]
+            I_AUTH["authorize: realm検証 → ldap → pap / Auth-Type LDAP"]
+            I_AUTHN["authenticate: PAP（Phase 1）/ LDAP bind（Phase 2）"]
         end
     end
 
@@ -170,7 +178,7 @@ graph TD
 | `eap` | EAP-TTLS/PAP処理 | 1～ |
 | `ldap` | OpenLDAPへの接続 | 1 |
 | `ldap_google` | Google Workspace Secure LDAP | 2～ |
-| `suffix` | realm分離（@以降を抽出） | 1～ |
+| `suffix` | realm分離（@以降を抽出、外部トンネルで使用） | 1～ |
 | `pap` | PAP認証 | 1～ |
 | `attr_filter` | 属性フィルタリング | 1～ |
 

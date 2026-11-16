@@ -1,0 +1,9 @@
+---
+# group_vars/all/vault.yml にコピーして値を変更する（make setup が自動でコピーする）
+# vault.yml は git 管理外。共有・本番相当の環境では ansible-vault encrypt で暗号化する
+
+vault_radius_secret: changeme-radius-secret
+vault_ldap_admin_password: changeme-ldap-admin
+vault_test_user_passwords:
+  testuser1: changeme-test-pass
+  testuser2: changeme-test-pass2

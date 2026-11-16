@@ -1,7 +1,7 @@
 # eduroam技術検証環境
 
 学校法人コンピュータ総合学園（神戸電子専門学校・神戸情報大学院大学）へのeduroam導入に向けた技術検証環境。
-FreeRADIUS + Google Workspace Secure LDAPによるEAP-TTLS/PAP認証をDockerで構築する。
+FreeRADIUS + Google Workspace Secure LDAPによるEAP-TTLS/PAP認証を、OpenTofu（ホスト作成）とAnsible（構成管理）で構築する。
 
 ## アーキテクチャ
 
@@ -17,51 +17,101 @@ graph LR
 
 **EAP-TTLS/PAP** を採用。Google Workspace / Azure ADいずれもNTハッシュを提供できないため、PEAP/MSCHAPv2は使用不可。
 
-## クイックスタート
+## IaC の構成
+
+```mermaid
+graph LR
+    subgraph OpenTofu
+        L["tofu/envs/local<br>Incus コンテナ"]
+        P["tofu/envs/proxmox<br>Proxmox VE LXC"]
+    end
+    INV["Ansible inventory<br>（hosts.yml を生成）"]
+    subgraph Ansible
+        R["roles: freeradius / openldap_test /<br>radius_test_client / lab_pki"]
+    end
+    L --> INV
+    P --> INV
+    INV --> R
+```
+
+- **OpenTofu**: Debian 13 のホスト（コンテナ）を作成し、Ansible の inventory を生成する。環境ごとに `tofu/envs/<環境>` を持つ
+- **Ansible**: Debian パッケージの FreeRADIUS 3.2 を構成する。ロールは環境に依存せず、ローカル検証と Proxmox で同じものを使う
+
+| 環境 | 基盤 | 用途 |
+|------|------|------|
+| `local` | WSL2 / Linux 上の Incus | Phase 1〜3 の検証（radius / ldap / client の3コンテナ） |
+| `proxmox` | Proxmox VE の LXC | 実ネットワークでの検証・本番 |
+
+## クイックスタート（local）
+
+Linux または WSL2（systemd 有効）で実行する。
 
 ```bash
-# 1. 初期セットアップ（証明書生成、設定ファイル作成）
+# 1. Incus の導入（初回のみ。incus-admin グループ追加後は再ログイン、WSL は wsl --terminate <distro>）
+make incus-host
+
+# 2. Ansible コレクション導入、vault.yml 作成、tofu init
 make setup
 
-# 2. 環境起動
+# 3. コンテナ作成 + 構成
 make up
 
-# 3. ログ確認
-make logs
-
 # 4. 認証テスト
-make test-radtest
+make test
 ```
 
-## 構成
+設定を変更したら `make deploy` で反映する（変更があった場合のみ設定検証 `freeradius -C` を通してから再起動する）。
 
-| サービス | 用途 | ポート |
-|---------|------|--------|
-| freeradius | RADIUSサーバー | 1812/udp, 1813/udp |
-| openldap | ローカルテスト用LDAP | 389 |
-| test-client | radtest/eapol_testクライアント | - |
+## 構成（local）
 
-## 環境変数の設定
+| コンテナ | Ansible グループ | 用途 | IPv4 |
+|---------|-----------------|------|------|
+| eduroam-radius | `radius` | FreeRADIUS（1812/udp, 1813/udp） | 10.180.0.10 |
+| eduroam-ldap | `ldap_test` | 検証用 OpenLDAP（389） | 10.180.0.11 |
+| eduroam-client | `test_client` | radtest / eapol_test | 10.180.0.12 |
+
+## シークレットの管理
 
 ```bash
-cp docker/.env.example docker/.env
-# docker/.env を編集してパスワード・シークレットを設定
+# make setup が vault.yml.example からコピーする
+ansible/inventories/<環境>/group_vars/all/vault.yml
 ```
 
-テストユーザーのパスワードやRADIUS共有シークレットは `docker/.env` で管理する。
+RADIUS 共有シークレット、LDAP パスワード、テストユーザーのパスワードは `vault.yml`（git 管理外）で管理する。共有・本番相当の環境では `ansible-vault encrypt` で暗号化する。
+FreeRADIUS には systemd の EnvironmentFile（`/etc/freeradius/eduroam.env`、0600）経由で渡し、設定ファイルからは `$ENV{...}` で参照する。
+
+検証用の CA・サーバ証明書はコントローラの `~/.local/share/eduroam/<環境>/pki/` に生成する（`EDUROAM_SECRETS_DIR` で変更可）。
 
 ## Makeコマンド
 
+`ENV_NAME=proxmox` を付けると Proxmox 環境を操作する（既定は `local`）。
+
 | コマンド | 説明 |
 |---------|------|
-| `make setup` | 初期セットアップ |
-| `make up` | 環境起動 |
-| `make down` | 環境停止 |
-| `make logs` | FreeRADIUSログ表示 |
-| `make test-radtest` | radtestで認証テスト |
-| `make test-eapol` | eapol_testでEAP-TTLS/PAP認証テスト |
-| `make ldap-search` | LDAPユーザー確認 |
-| `make clean` | 全環境クリーンアップ |
+| `make incus-host` | ホストに Incus を導入（local の初回のみ） |
+| `make setup` | Ansible コレクション導入、vault.yml 作成、tofu init |
+| `make plan` | tofu plan |
+| `make infra` | tofu apply（ホスト作成と inventory 生成） |
+| `make deploy` | Ansible で構成（設定変更の反映） |
+| `make up` | `infra` + `deploy` |
+| `make test` | 認証テスト |
+| `make down` | tofu destroy |
+| `make logs` | FreeRADIUS ログ表示（local） |
+| `make radius-debug` | FreeRADIUS をデバッグモード（`-X`）で前面実行（local） |
+| `make ldap-search` | 検証用 LDAP のエントリ表示（local） |
+| `make lint` | Ansible 構文チェック、tofu fmt / validate |
+| `make clean-pki` | 検証用 PKI を削除 |
+
+## 認証テスト
+
+`make test` は test_client から次の4項目を確認する。
+
+| # | 内容 | 期待結果 |
+|---|------|---------|
+| 1 | EAP なしの PAP（radtest） | Access-Reject |
+| 2 | EAP-TTLS/PAP（eapol_test、サーバ証明書を CA で検証） | SUCCESS |
+| 3 | EAP-TTLS/PAP 不正パスワード | EAP-Failure |
+| 4 | 自機関以外の realm の内部 Identity | EAP-Failure |
 
 ## ドキュメント
 
@@ -72,7 +122,7 @@ cp docker/.env.example docker/.env
 ## 検証フェーズ
 
 1. **Phase 1**: ローカル検証（OpenLDAP） ← 現在のフェーズ
-2. **Phase 2**: Google Workspace Secure LDAP接続
+2. **Phase 2**: Google Workspace Secure LDAP接続（`freeradius_ldap_backend: google`）
 3. **Phase 3**: Proxy検証（モックFLR）
 4. **Phase 4**: eduroam JP接続（NII登録後）
 5. **Phase 5**: AP統合・実機テスト
@@ -80,16 +130,22 @@ cp docker/.env.example docker/.env
 ## ディレクトリ構造
 
 ```
-eduroam_project/
-├── docker/
-│   ├── docker-compose.yml
-│   ├── .env.example
-│   ├── freeradius/          # FreeRADIUS設定
-│   ├── openldap/            # テスト用LDAPデータ
-│   └── test-client/         # テストクライアント
+.
+├── tofu/envs/
+│   ├── local/               # Incus（WSL2/Linux）
+│   └── proxmox/             # Proxmox VE LXC
+├── ansible/
+│   ├── ansible.cfg
+│   ├── requirements.yml
+│   ├── playbooks/           # site.yml（構成）/ test.yml（認証テスト）
+│   ├── inventories/         # 環境別の group_vars と vault.yml.example
+│   └── roles/
+│       ├── freeradius/      # FreeRADIUS 設定（テンプレート）
+│       ├── openldap_test/   # 検証用 OpenLDAP とテストユーザー
+│       ├── radius_test_client/
+│       └── lab_pki/         # 検証用 CA・サーバ証明書
 ├── scripts/
-│   ├── setup.sh             # 初期セットアップ
-│   └── generate-certs.sh    # 証明書生成
+│   └── incus-host-setup.sh  # Incus の導入
 ├── Makefile
 └── README.md
 ```

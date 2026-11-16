@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# RADIUS クライアント（NAS）定義
+# 共有シークレットは EnvironmentFile（{{ freeradius_env_file }}）から $ENV{...} で参照する
+{% for client in freeradius_clients %}
+
+client {{ client.name }} {
+    ipaddr = {{ client.ipaddr }}
+    secret = $ENV{{ '{' }}{{ client.secret_env }}{{ '}' }}
+    require_message_authenticator = {{ client.require_message_authenticator | default('no') }}
+    nas_type = {{ client.nas_type | default('other') }}
+    shortname = {{ client.shortname | default(client.name) }}
+}
+{% endfor %}

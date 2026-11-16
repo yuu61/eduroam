@@ -1,0 +1,55 @@
+# {{ ansible_managed }}
+# eduroam 内部トンネルサーバー（実際の認証処理）
+# EAP-TTLSの内部でPAP認証を行う
+# LDAP バックエンド: {{ freeradius_ldap_backend }}（モジュール {{ _freeradius_ldap_module }}、認証方式 {{ freeradius_ldap_auth_method }}）
+server eduroam-inner-tunnel {
+    listen {
+        type = auth
+        ipaddr = 127.0.0.1
+        port = 18120
+    }
+
+    authorize {
+        # 自realm以外は拒否（IdPとして自機関のみ認証）
+        # 内部 Identity は user@realm の形式のまま LDAP の mail 属性と照合する
+        if (&User-Name !~ /@({{ freeradius_local_realms | map('regex_escape') | join('|') }})$/i) {
+            reject
+        }
+
+        # LDAP検索でユーザーを確認する
+        {{ _freeradius_ldap_module }}
+{% if freeradius_ldap_auth_method == 'bind' %}
+
+        # ユーザーが見つかった場合、LDAP bind でパスワードを検証する
+        if ((ok || updated) && &User-Password) {
+            update control {
+                &Auth-Type := LDAP
+            }
+        }
+{% else %}
+
+        # PAP認証の準備（LDAPから取得したパスワードと比較）
+        pap
+{% endif %}
+    }
+
+    authenticate {
+        # PAP: LDAPから取得したパスワードと比較
+        Auth-Type PAP {
+            pap
+        }
+{% if freeradius_ldap_auth_method == 'bind' %}
+
+        # LDAP bind 認証
+        Auth-Type LDAP {
+            {{ _freeradius_ldap_module }}
+        }
+{% endif %}
+    }
+
+    post-auth {
+        Post-Auth-Type REJECT {
+            attr_filter.access_reject
+        }
+    }
+}

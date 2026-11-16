@@ -1,0 +1,68 @@
+---
+# ローカル検証環境（WSL2/Linux 上の Incus）
+# hosts.yml は tofu/envs/local が生成する（service_ipv4 / lab_network_cidr を含む）
+# 秘密情報は同じディレクトリの vault.yml（vault.yml.example から作成）に置く
+
+eduroam_env: local
+eduroam_secrets_dir: "{{ lookup('ansible.builtin.env', 'EDUROAM_SECRETS_DIR', default=lookup('ansible.builtin.env', 'HOME') ~ '/.local/share/eduroam/' ~ eduroam_env) }}"
+
+_radius_ipv4: "{{ hostvars[groups['radius'][0]].service_ipv4 }}"
+_ldap_ipv4: "{{ hostvars[groups['ldap_test'][0]].service_ipv4 if groups.get('ldap_test') else 'localhost' }}"
+
+# --- 検証用 PKI（コントローラ上に生成） ---
+lab_pki_enabled: true
+lab_pki_dir: "{{ eduroam_secrets_dir }}/pki"
+
+# --- FreeRADIUS ---
+freeradius_local_realms:
+  - kobedenshi.ac.jp
+freeradius_clients:
+  - name: localhost
+    ipaddr: 127.0.0.1
+    secret_env: RADIUS_SECRET
+  - name: lab-network
+    ipaddr: "{{ lab_network_cidr }}"
+    secret_env: RADIUS_SECRET
+freeradius_secret_env:
+  RADIUS_SECRET: "{{ vault_radius_secret }}"
+
+# Phase 1: openldap / Phase 2: google
+freeradius_ldap_backend: openldap
+freeradius_ldap_base_dn: dc=kobedenshi,dc=ac,dc=jp
+freeradius_ldap_server: "{{ _ldap_ipv4 }}"
+freeradius_ldap_identity: cn=admin,dc=kobedenshi,dc=ac,dc=jp
+freeradius_ldap_password: "{{ vault_ldap_admin_password }}"
+
+freeradius_tls_cert_src: "{{ lab_pki_dir }}/server.crt"
+freeradius_tls_key_src: "{{ lab_pki_dir }}/server.key"
+freeradius_tls_ca_src: "{{ lab_pki_dir }}/ca.crt"
+
+# --- 検証用 OpenLDAP ---
+openldap_test_domain: kobedenshi.ac.jp
+openldap_test_organization: Kobe Denshi
+openldap_test_base_dn: dc=kobedenshi,dc=ac,dc=jp
+openldap_test_admin_password: "{{ vault_ldap_admin_password }}"
+openldap_test_users:
+  - uid: testuser1
+    given_name: User1
+    uid_number: 10001
+    # example.ac.jp の mail は、他 realm の内部 Identity が LDAP 検索ではなく
+    # inner-tunnel の realm 判定で拒否されることをテスト4で確認するためのもの
+    mail:
+      - testuser1@kobedenshi.ac.jp
+      - testuser1@example.ac.jp
+    password: "{{ vault_test_user_passwords.testuser1 }}"
+  - uid: testuser2
+    given_name: User2
+    uid_number: 10002
+    mail: testuser2@kobedenshi.ac.jp
+    password: "{{ vault_test_user_passwords.testuser2 }}"
+
+# --- テストクライアント ---
+test_client_radius_server: "{{ _radius_ipv4 }}"
+test_client_radius_secret: "{{ vault_radius_secret }}"
+test_client_anonymous_identity: anonymous@kobedenshi.ac.jp
+test_client_user: testuser1@kobedenshi.ac.jp
+test_client_password: "{{ vault_test_user_passwords.testuser1 }}"
+test_client_ca_src: "{{ lab_pki_dir }}/ca.crt"
+test_client_server_domain: radius.kobedenshi.ac.jp

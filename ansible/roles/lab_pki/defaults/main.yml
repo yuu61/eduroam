@@ -1,0 +1,11 @@
+---
+# 検証用の自己署名 CA と RADIUS サーバ証明書をコントローラ上に生成する
+# 本番では使わない（NII UPKI のサーバ証明書を freeradius_tls_* で指定する）
+
+lab_pki_dir: ""
+lab_pki_key_size: 2048
+lab_pki_organization: Kobe Denshi
+lab_pki_ca_common_name: eduroam-ca.kobedenshi.ac.jp
+lab_pki_ca_valid_days: 3650
+lab_pki_server_common_name: radius.kobedenshi.ac.jp
+lab_pki_server_valid_days: 365
