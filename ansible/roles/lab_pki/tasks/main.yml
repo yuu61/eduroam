@@ -1,0 +1,84 @@
+---
+- name: Check role variables
+  ansible.builtin.assert:
+    that:
+      - lab_pki_dir | length > 0
+    fail_msg: lab_pki_dir を設定してください。
+    quiet: true
+
+- name: Create PKI directory
+  ansible.builtin.file:
+    path: "{{ lab_pki_dir }}"
+    state: directory
+    mode: "0700"
+
+- name: Generate CA private key
+  community.crypto.openssl_privatekey:
+    path: "{{ lab_pki_dir }}/ca.key"
+    type: RSA
+    size: "{{ lab_pki_key_size }}"
+    mode: "0600"
+
+- name: Generate CA CSR
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: "{{ lab_pki_dir }}/ca.key"
+    country_name: JP
+    state_or_province_name: Hyogo
+    locality_name: Kobe-shi
+    organization_name: "{{ lab_pki_organization }}"
+    common_name: "{{ lab_pki_ca_common_name }}"
+    basic_constraints:
+      - CA:TRUE
+    basic_constraints_critical: true
+    key_usage:
+      - keyCertSign
+      - cRLSign
+    key_usage_critical: true
+    use_common_name_for_san: false
+  register: _lab_pki_ca_csr
+  changed_when: false
+
+- name: Self-sign CA certificate
+  community.crypto.x509_certificate:
+    path: "{{ lab_pki_dir }}/ca.crt"
+    csr_content: "{{ _lab_pki_ca_csr.csr }}"
+    privatekey_path: "{{ lab_pki_dir }}/ca.key"
+    provider: selfsigned
+    selfsigned_not_after: +{{ lab_pki_ca_valid_days }}d
+    mode: "0644"
+
+- name: Generate server private key
+  community.crypto.openssl_privatekey:
+    path: "{{ lab_pki_dir }}/server.key"
+    type: RSA
+    size: "{{ lab_pki_key_size }}"
+    mode: "0600"
+
+- name: Generate server CSR
+  community.crypto.openssl_csr_pipe:
+    privatekey_path: "{{ lab_pki_dir }}/server.key"
+    country_name: JP
+    state_or_province_name: Hyogo
+    locality_name: Kobe-shi
+    organization_name: "{{ lab_pki_organization }}"
+    common_name: "{{ lab_pki_server_common_name }}"
+    subject_alt_name:
+      - DNS:{{ lab_pki_server_common_name }}
+    key_usage:
+      - digitalSignature
+      - keyEncipherment
+    extended_key_usage:
+      - serverAuth
+  register: _lab_pki_server_csr
+  changed_when: false
+
+- name: Sign server certificate with the lab CA
+  community.crypto.x509_certificate:
+    path: "{{ lab_pki_dir }}/server.crt"
+    csr_content: "{{ _lab_pki_server_csr.csr }}"
+    provider: ownca
+    ownca_path: "{{ lab_pki_dir }}/ca.crt"
+    ownca_privatekey_path: "{{ lab_pki_dir }}/ca.key"
+    ownca_not_after: +{{ lab_pki_server_valid_days }}d
+    mode: "0644"
+...

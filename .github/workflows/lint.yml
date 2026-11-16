@@ -1,0 +1,42 @@
+---
+# IaC（Ansible / OpenTofu / シェル）の静的検査。ローカルと同じ make lint を実行する
+name: lint
+
+"on":
+  push:
+    paths:
+      - ansible/**
+      - tofu/**
+      - scripts/**
+      - "**/*.sh"
+      - Makefile
+      - .ansible-lint
+      - .yamllint
+      - .shellcheckrc
+      - .editorconfig
+      - .github/workflows/lint.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.3
+
+      - uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: 1.13.9
+          tofu_wrapper: false
+
+      # ansible-lint は offline 設定のため、コレクションを先に導入する
+      - name: Install Ansible collections
+        run: uvx --python 3.12 --from 'ansible-core>=2.16,<2.17' ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: Lint
+        run: make -k lint
+...

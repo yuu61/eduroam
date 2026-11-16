@@ -1,0 +1,24 @@
+# terraform.tfvars にコピーして環境に合わせて変更する（terraform.tfvars は git 管理外）
+# API トークンは環境変数で渡す: export PROXMOX_VE_API_TOKEN='tofu@pve!eduroam=xxxxxxxx-xxxx-...'
+
+proxmox_endpoint = "https://pve.example.ac.jp:8006/"
+proxmox_insecure = false
+node_name        = "pve"
+template_file_id = "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst"
+datastore_id     = "local-lvm"
+
+bridge       = "vmbr0"
+vlan_id      = null
+network_cidr = "192.0.2.0/24"
+gateway      = "192.0.2.1"
+dns_servers  = ["192.0.2.1"]
+
+ssh_public_key_file = "~/.ssh/id_ed25519.pub"
+
+# Phase 1〜3 の検証を Proxmox 上で行う構成（local と同じ 3 台）
+# 本番は radius のみ（必要に応じて冗長化用に 2 台目を追加）
+containers = {
+  radius = { vm_id = 2010, host_number = 10, groups = ["radius"], cores = 2, memory_mb = 1024 }
+  ldap   = { vm_id = 2011, host_number = 11, groups = ["ldap_test"], memory_mb = 512 }
+  client = { vm_id = 2012, host_number = 12, groups = ["test_client"], memory_mb = 512 }
+}

@@ -1,0 +1,20 @@
+---
+# group_vars/all/vault.yml にコピーして値を変更し、ansible-vault encrypt で暗号化する
+#   cp ansible/inventories/proxmox/vault.yml.example ansible/inventories/proxmox/group_vars/all/vault.yml
+#   ansible-vault encrypt ansible/inventories/proxmox/group_vars/all/vault.yml
+# 実行時は ANSIBLE_VAULT_PASSWORD_FILE を設定するか ANSIBLE_ARGS=--ask-vault-pass を付ける
+
+vault_radius_secret: changeme-radius-secret
+
+# Phase 1（検証用 OpenLDAP / テストユーザー）
+vault_ldap_admin_password: changeme-ldap-admin
+vault_test_user_passwords:
+  testuser1: changeme-test-pass
+  testuser2: changeme-test-pass2
+
+# Phase 2（Google Workspace Secure LDAP のアクセス認証情報）
+# vault_google_ldap_user: ldap-user
+# vault_google_ldap_password: changeme
+
+# Phase 4（eduroam JP FLR との共有シークレット。freeradius_secret_env に FLR_SECRET として追加する）
+# vault_flr_secret: changeme

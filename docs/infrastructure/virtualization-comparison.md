@@ -263,8 +263,8 @@ RADIUS + 監視基盤 + 運用サービス群をまとめて運用する前提�
 
 | フェーズ | 推奨技術 | 理由 |
 |----------|---------|------|
-| **Phase 1-3（検証）** | **Docker Compose（現状維持）** | 最も軽量・高速。設定変更→テストのサイクルが最短。監視はこの段階では不要 |
-| **Phase 4-5（接続・実機テスト）** | **Docker on Linux サーバ** or **Proxmox VE上のLXC** | WSL2のネットワーク制約を回避。実APからのUDP通信を受けるにはネイティブ環境が必要。この段階で監視基盤を構築開始 |
+| **Phase 1-3（検証）** | **Incus（WSL2/Linux）上のシステムコンテナ** | OpenTofu + Ansible で作成・構成。本番の Proxmox LXC と同じ Debian 13 + 同じ Ansible ロールで検証できる。監視はこの段階では不要 |
+| **Phase 4-5（接続・実機テスト）** | **Proxmox VE上のLXC** | WSL2のネットワーク制約を回避。実APからのUDP通信を受けるにはネイティブ環境が必要。`tofu/envs/proxmox` と同じ Ansible ロールで構成。この段階で監視基盤を構築開始 |
 | **本番運用（推奨）** | **Proxmox VE**（LXC中心） | RADIUS・監視・ログ管理をLXCで分離運用。スナップショット、バックアップ、WebUI統合管理 |
 | **本番運用（HA）** | **Proxmox VE 3ノードクラスタ** | 自動フェイルオーバー、ライブマイグレーション。eduroam 24/365要件対応 |
 
@@ -578,7 +578,7 @@ helm install loki grafana/loki-stack
        └─ Nginx コンテナ（リバースプロキシ）
 ```
 
-- **メリット**: 現在の検証環境からの移行が最もスムーズ。1ファイル（docker-compose.yml）で全サービス管理。学習コスト最小
+- **メリット**: 1ファイル（docker-compose.yml）で全サービス管理。学習コスト最小
 - **デメリット**: サービス間の分離がnamespaceレベルのみ。スナップショット/バックアップがDocker volume単位で煩雑。OS障害で全サービス停止
 - **適合**: 小規模（学生数千名以下）、初期コスト最小化が最優先の場合
 
@@ -667,7 +667,8 @@ helm install loki grafana/loki-stack
 
 ### 現在のフェーズ（Phase 1-3: 検証）
 
-**Docker Compose を継続**が最適。変更不要。
+**Incus 上のシステムコンテナ（OpenTofu `tofu/envs/local` + Ansible）**で検証する。
+ホスト作成（OpenTofu）と構成管理（Ansible ロール）を分離しており、Proxmox VE LXC 用の環境定義（`tofu/envs/proxmox`）も同じ Ansible ロールで構成する設計になっている。Proxmox 環境は実機での適用が未検証で、`tofu validate` のみ通過している。
 監視基盤はこの段階では構築不要（FreeRADIUSのデバッグログで十分）。
 
 ### 本番移行時の推奨

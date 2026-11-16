@@ -312,9 +312,9 @@ FortiAuthenticator + Google Workspace Secure LDAP での 802.1X 認証は Fortin
 ## 7. 実装時の注意事項（Phase 2 向け）
 
 1. Google 管理コンソールで Secure LDAP サービスを有効化し、FreeRADIUS 用の LDAP クライアントを追加
-2. 発行されたクライアント証明書を `docker/freeradius/raddb/certs/` に配置（`.gitignore` 済み）
-3. `mods-available/ldap_google` の `tls` セクションでクライアント証明書を指定
-4. `eduroam-inner-tunnel` の ldap モジュール参照を `ldap` → `ldap_google` に変更
+2. 発行されたクライアント証明書・鍵をコントローラの `~/.local/share/eduroam/<環境>/google/` に配置し、`freeradius_google_ldap_cert_src` / `freeradius_google_ldap_key_src` で指定（Ansible が `/etc/freeradius/3.0/certs/google/` に配置する）
+3. アクセス認証情報を `vault.yml` の `vault_google_ldap_user` / `vault_google_ldap_password` に設定
+4. `group_vars/all/main.yml` の `freeradius_ldap_backend` を `google` に変更して `make deploy`（`ldap_google` モジュールの有効化と inner-tunnel の LDAP bind 認証への切替が連動する）
 5. 認証キャッシュモジュールの導入を検討
 6. クォータ消費量の監視体制を構築
 

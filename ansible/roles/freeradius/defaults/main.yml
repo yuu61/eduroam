@@ -1,0 +1,65 @@
+---
+# FreeRADIUS 3.2 (Debian/Ubuntu パッケージ) を eduroam IdP+SP として構成する
+
+# --- パッケージ・パス（Debian パッケージのレイアウト） ---
+freeradius_packages:
+  - freeradius
+  - freeradius-ldap
+  - freeradius-utils
+freeradius_service: freeradius
+freeradius_binary: /usr/sbin/freeradius
+freeradius_conf_dir: /etc/freeradius/3.0
+freeradius_group: freerad
+
+# 秘密情報を渡す systemd EnvironmentFile（root:root 0600）
+freeradius_env_file: /etc/freeradius/eduroam.env
+
+# --- realm ---
+# 自機関 realm。proxy.conf のローカル realm と inner-tunnel の realm 判定に使う
+freeradius_local_realms:
+  - kobedenshi.ac.jp
+
+# --- RADIUS クライアント（NAS） ---
+# secret_env: 共有シークレットを格納する環境変数名（値は freeradius_secret_env で渡す）
+freeradius_clients:
+  - name: localhost
+    ipaddr: 127.0.0.1
+    secret_env: RADIUS_SECRET
+
+# 環境変数名 → 値。clients.conf / proxy.conf から $ENV{名前} で参照する
+freeradius_secret_env:
+  RADIUS_SECRET: ""
+
+# --- LDAP バックエンド ---
+# openldap: Phase 1（検証用 OpenLDAP）/ google: Phase 2（Google Workspace Secure LDAP）
+freeradius_ldap_backend: openldap
+# attribute: userPassword を取得して PAP で照合 / bind: ユーザー DN で LDAP bind して検証
+freeradius_ldap_auth_method: "{{ 'bind' if freeradius_ldap_backend == 'google' else 'attribute' }}"
+freeradius_ldap_base_dn: dc=kobedenshi,dc=ac,dc=jp
+# 内部 Identity（user@realm）で mail 属性を検索する
+# FreeRADIUS の展開構文 %{...} を Jinja2 に解釈させないため !unsafe を付ける
+freeradius_ldap_user_filter: !unsafe (mail=%{User-Name})
+
+# OpenLDAP（Phase 1）
+freeradius_ldap_server: localhost
+freeradius_ldap_port: 389
+freeradius_ldap_identity: cn=admin,{{ freeradius_ldap_base_dn }}
+freeradius_ldap_password: ""
+
+# Google Workspace Secure LDAP（Phase 2）
+freeradius_google_ldap_user: ""
+freeradius_google_ldap_password: ""
+# コントローラ上のクライアント証明書・鍵のパス（Google 管理コンソールで発行）
+freeradius_google_ldap_cert_src: ""
+freeradius_google_ldap_key_src: ""
+freeradius_google_ldap_tls_dir: "{{ freeradius_conf_dir }}/certs/google"
+
+# --- EAP サーバ証明書 ---
+# コントローラ上のファイルパス。検証環境は lab_pki ロールが生成し、本番は UPKI 証明書を指定する
+freeradius_tls_cert_src: ""
+freeradius_tls_key_src: ""
+freeradius_tls_ca_src: ""
+freeradius_tls_dir: "{{ freeradius_conf_dir }}/certs/eduroam"
+freeradius_tls_min_version: "1.2"
+freeradius_tls_max_version: "1.3"
+...

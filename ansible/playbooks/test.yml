@@ -1,0 +1,24 @@
+---
+# test_client から RADIUS サーバへ認証テストを実行する
+
+- name: Run eduroam authentication tests
+  hosts: test_client
+  gather_facts: false
+  tasks:
+    - name: Run test runner
+      ansible.builtin.command:
+        cmd: /usr/local/bin/eduroam-test-all
+      register: _tests
+      changed_when: false
+      failed_when: false
+
+    - name: Show test output
+      ansible.builtin.debug:
+        msg: "{{ _tests.stdout_lines }}"
+
+    - name: Check test result
+      ansible.builtin.assert:
+        that: _tests.rc == 0
+        fail_msg: 認証テストに失敗しました（上の出力を確認してください）。
+        success_msg: 全テスト PASS
+...

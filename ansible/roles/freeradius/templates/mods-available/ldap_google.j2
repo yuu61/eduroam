@@ -1,0 +1,53 @@
+# {{ ansible_managed }}
+# Google Workspace Secure LDAP モジュール (Phase 2)
+# freeradius_ldap_backend: google で有効化される
+ldap ldap_google {
+    server = "ldaps://ldap.google.com"
+    port = 636
+
+    # Google Workspace クライアント証明書認証
+    tls {
+        certificate_file = {{ freeradius_google_ldap_tls_dir }}/client.crt
+        private_key_file = {{ freeradius_google_ldap_tls_dir }}/client.key
+        require_cert = "demand"
+        start_tls = no
+    }
+
+    # アクセス認証情報（Google 管理コンソールで発行）
+    identity = $ENV{GOOGLE_LDAP_USER}
+    password = $ENV{GOOGLE_LDAP_PASS}
+
+    base_dn = "{{ freeradius_ldap_base_dn }}"
+
+    update {
+        # Google Workspace LDAPではパスワードハッシュは取得不可
+        # LDAP bindで認証する
+    }
+
+    user {
+        base_dn = "${..base_dn}"
+        filter = "{{ freeradius_ldap_user_filter }}"
+    }
+
+    options {
+        chase_referrals = no
+        rebind = yes
+        res_timeout = 15
+        srv_timelimit = 5
+        net_timeout = 3
+        idle = 60
+        probes = 3
+        interval = 3
+    }
+
+    pool {
+        start = 1
+        min = 1
+        max = 5
+        spare = 1
+        uses = 0
+        retry_delay = 30
+        lifetime = 0
+        idle_timeout = 60
+    }
+}

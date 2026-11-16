@@ -3,42 +3,49 @@
 ## プロジェクト概要
 
 学校法人コンピュータ総合学園（神戸電子専門学校・神戸情報大学院大学）へのeduroam導入に向けた技術検証環境。
-FreeRADIUS + Google Workspace Secure LDAP による EAP-TTLS/PAP 認証を Docker で構築する。
+FreeRADIUS + Google Workspace Secure LDAP による EAP-TTLS/PAP 認証を、OpenTofu（ホスト作成）と Ansible（構成管理）で構築する。Docker には依存しない。
 
 ## 技術スタック
 
-- **RADIUS**: FreeRADIUS 3.2.6（公式Dockerイメージベース）
-- **LDAP**: OpenLDAP 1.5.0（Phase 1テスト用）、Google Workspace Secure LDAP（Phase 2本番）
+- **RADIUS**: FreeRADIUS 3.2.7（Debian 13 パッケージ）
+- **LDAP**: OpenLDAP slapd（Phase 1テスト用、Debian パッケージ）、Google Workspace Secure LDAP（Phase 2本番）
 - **認証方式**: EAP-TTLS/PAP（Google WorkspaceがNTハッシュ非対応のため唯一の選択肢）
-- **コンテナ**: Docker Compose（freeradius, openldap, test-client の3サービス）
+- **ホスト作成**: OpenTofu（`lxc/incus` provider でローカル Incus、`bpg/proxmox` provider で Proxmox VE LXC）
+- **構成管理**: Ansible（ansible-core 2.16+、community.general / community.crypto）
+- **静的検査**: yamllint、ansible-lint、ShellCheck / shfmt、tofu fmt / validate。全ルールを有効にし、uv（`uvx`）で版を固定して実行する。GitHub Actions でも同じ `make lint` を実行する
+- **OS**: Debian 13（全ホスト共通）
 
 ## ディレクトリ構造
 
 ```
-docker/                         # Docker環境
-  .env.example                  # 環境変数テンプレート（.envにコピーして使用）
-  docker-compose.yml            # 3サービス構成（freeradius, openldap, test-client）
-  freeradius/
-    Dockerfile                  # ストックFreeRADIUSにカスタム設定を上書き
-    raddb/
-      clients.conf              # RADIUSクライアント定義
-      proxy.conf                # realm routing設定
-      policy.d/filter           # ポリシーフィルタ定義
-      mods-available/eap        # EAP-TTLS/PAP設定
-      mods-available/ldap       # OpenLDAP接続（Phase 1）
-      mods-available/ldap_google # Google Workspace LDAP（Phase 2、未有効化）
-      sites-available/eduroam            # 外部EAPトンネル
-      sites-available/eduroam-inner-tunnel # 内部認証（LDAP検索→PAP）
-      certs/                    # TLS証明書（git-ignored、generate-certs.shで生成）
-  openldap/ldif/                # LDAPスキーマ・テストユーザーデータ
-  test-client/
-    Dockerfile                  # radtest/eapol_testクライアント
-    scripts/
-      eapol_test.conf           # EAP-TTLS/PAP テスト設定
-      test-all.sh               # 全テスト自動実行スクリプト
-scripts/                        # セットアップ・証明書生成スクリプト
-  setup.sh                      # 初期セットアップ（.env作成 + 証明書生成 + ビルド）
-  generate-certs.sh             # 自己署名CA・サーバ証明書生成
+.github/workflows/lint.yml      # IaC 変更時に make -k lint を実行する CI
+.ansible-lint / .yamllint       # ansible-lint・yamllint 設定
+.shellcheckrc                   # ShellCheck 設定（全チェック有効）
+.editorconfig                   # エディタ・shfmt 共通の書式（シェルは 4 スペース）
+tofu/envs/
+  local/                        # Incus（WSL2/Linux）に radius/ldap/client の3コンテナを作成
+  proxmox/                      # Proxmox VE に LXC を作成（terraform.tfvars.example をコピーして使用）
+ansible/
+  ansible.cfg                   # Makefile が ANSIBLE_CONFIG で指定する
+  requirements.yml              # Ansible コレクション
+  playbooks/
+    site.yml                    # 構成（bootstrap → lab_pki → openldap_test → freeradius → test client）
+    test.yml                    # 認証テスト
+  inventories/<環境>/
+    hosts.yml                   # OpenTofu が生成（git-ignored）
+    vault.yml.example           # シークレットのテンプレート
+    group_vars/all/main.yml     # 環境ごとの変数（Phase 切替もここ）
+    group_vars/all/vault.yml    # シークレット（git-ignored）
+  roles/
+    <ロール>/meta/argument_specs.yml  # ロール変数の型・選択肢（ロール開始時に検証される）
+    freeradius/                 # FreeRADIUS 構成
+      templates/                # clients.conf / proxy.conf / mods-available/{eap,ldap,ldap_google} / sites-available/eduroam-inner-tunnel
+      files/sites-available/eduroam  # 外部EAPトンネル
+    openldap_test/              # 検証用 slapd とテストユーザー
+    radius_test_client/         # radtest / eapol_test とテストスクリプト（eduroam-test-all）
+    lab_pki/                    # 検証用 CA・サーバ証明書をコントローラに生成
+scripts/
+  incus-host-setup.sh           # Incus の導入・初期化（make incus-host）
 docs/                           # 技術ドキュメント
   application/                  # eduroam JP 申請手続き
   infrastructure/               # インフラ・技術設計
@@ -58,55 +65,80 @@ plans/                          # 実装計画
 
 ## よく使うコマンド
 
+Linux / WSL2（systemd 有効）で実行する。Ansible・OpenTofu は Windows ネイティブでは動かさない。
+`ENV_NAME=proxmox` で Proxmox 環境を操作する（既定は `local`）。
+
 ```bash
-make setup          # 初期セットアップ（.env作成 + 証明書生成 + Dockerビルド）
-make certs          # 証明書生成のみ
-make build          # Dockerイメージ再ビルド
-make up             # 環境起動（バックグラウンド）
-make up-debug       # 環境起動（フォアグラウンド、ログ表示）
-make down           # 環境停止
-make restart        # 環境再起動（設定変更の反映に使用）
-make logs           # FreeRADIUSログ表示
-make logs-all       # 全サービスログ表示
-make test           # デフォルトテスト（= test-radtest）
-make test-radtest   # radtestでPAP認証テスト
-make test-eapol     # eapol_testでEAP-TTLS/PAP認証テスト
-make test-all       # 全テスト一括実行（test-all.sh経由）
-make ldap-search    # OpenLDAPのユーザー確認
-make clean          # 環境+ボリューム削除
-make clean-certs    # 証明書削除
+make incus-host     # Incus の導入（local の初回のみ、sudo）
+make setup          # Ansible コレクション導入 + vault.yml 作成 + tofu init
+make plan           # tofu plan
+make infra          # tofu apply（ホスト作成 + inventory 生成）
+make deploy         # Ansible で構成（設定変更の反映）
+make up             # infra + deploy
+make test           # 認証テスト（4項目）
+make down           # tofu destroy
+make logs           # FreeRADIUSログ表示（local）
+make radius-debug   # FreeRADIUS を -X で前面実行（local、Ctrl+C で通常起動に戻る）
+make ldap-search    # 検証用 OpenLDAP のエントリ表示（local）
+make lint           # リンター（yamllint / ansible-lint / ShellCheck / shfmt / tofu fmt・validate、全環境。make -k lint で全結果を表示）
+make fmt            # フォーマッター（ansible-lint --fix / shfmt / tofu fmt）
+make clean-pki      # 検証用 PKI 削除
 ```
 
 ## 設定変更時のワークフロー
 
-FreeRADIUSの設定ファイルはdocker-compose.ymlで個別マウントしている。
-設定変更後は `make restart` で反映される（リビルド不要）。
+FreeRADIUS の設定は `ansible/roles/freeradius/` のテンプレートが正。対象ホストの `/etc/freeradius/3.0/` を直接編集しない。
+変更後は `make deploy` で反映する。変更があったときだけハンドラが `freeradius -Cx` で設定を検証し、通った場合のみ再起動する。
+`make deploy` は冪等で、変更がなければ `changed=0` になる。
 
-Dockerfile自体を変更した場合は `make build && make up` が必要。
+ホスト構成（台数・IP・イメージ）を変える場合は `tofu/envs/<環境>/` を編集して `make infra`。
+
+IaC（`ansible/`・`tofu/`・シェルスクリプト）を変更したら `make fmt` → `make -k lint` を通す。
+
+## リンター／フォーマッターの注意事項
+
+- 対象は IaC のみ。Markdown（`docs/` など）は対象外。
+- 各リンターは全ルールを有効にし、警告もエラーとして扱う（ansible-lint はオプトインのルールを含めて `strict: true`、yamllint は全ルールを `error`、ShellCheck は `enable=all`）。
+- **インラインの抑止は使わない**（`# noqa`、`# shellcheck disable=` / `source=`、`# yamllint disable`、`.ansible-lint-ignore` など）。指摘はコードを直して解消する。
+  - どうしても直せない場合に限り、理由をコメントに書いて抑止する。
+  - 同じルールの抑止が増える場合は、設定ファイルでルールを無効化し、理由を設定ファイルにコメントで書く。
+- 設定で無効化・緩和しているもの（理由は各設定ファイルに記載）:
+  - yamllint `comments-indentation`: ansible-lint が無効を要求する（有効だと ansible-lint の yaml ルールと `--fix` が使えない）
+  - yamllint `key-ordering`: キーのアルファベット順は ansible-lint の `key-order`（タスクは `name` が先頭）と両立しない
+  - ansible-lint `only-builtins`: community.general（LDAP エントリ）と community.crypto（PKI）を `only_builtins_allow_collections` で許可
+- yamllint の主な規約: YAML は `---` で始めて `...` で終える。文字列は必要なときだけ二重引用符で囲む（`quoted-strings: only-when-needed`）。1行は160文字まで。
+- ansible-lint は実行環境に合わせて ansible-core 2.16 で動かし、`offline: true` のため requirements.yml を自分では導入しない（ローカルは `make setup`、CI はワークフローで導入する）。
+- ロールの変数・register 名・ループ変数にはロール名を接頭辞に付ける（`radius_test_client_*`、内部用は `_openldap_test_*` のように先頭に `_`）。ループは `loop_control.loop_var` で名前を付け、暗黙の `item` は使わない。ansible-lint の `var-naming[no-role-prefix]` と `loop-var-prefix` が検査する。
+- ロール変数を追加・変更したら `meta/argument_specs.yml` も更新する（`role-argument-spec`）。型・選択肢はロール開始時に検証される。値の組み合わせや空文字の検査はロールの assert で行う。
+- YAML のリスト末尾にコメントを置かない。`ansible-lint --fix` がコメントを行頭に移す。コメントアウトした例はキーの前に書く。
+- テンプレートが出力する FreeRADIUS 設定の正しさはリンターでは分からない。`make deploy` 時のハンドラ（`freeradius -Cx`）が検証する。
 
 ## テスト用認証情報
 
-`docker/.env` で管理。`docker/.env.example` をコピーして値を設定する。
+`ansible/inventories/<環境>/group_vars/all/vault.yml` で管理（git-ignored）。`make setup` が `vault.yml.example` からコピーする。
 
-| 項目 | 環境変数 | 備考 |
-|------|---------|------|
-| RADIUS shared secret | `RADIUS_SECRET` | |
-| LDAP組織名 | `LDAP_ORGANISATION` | `Kobe Denshi` |
-| LDAPドメイン | `LDAP_DOMAIN` | `kobedenshi.ac.jp` |
-| LDAP admin password | `LDAP_ADMIN_PASSWORD` | |
-| LDAP Base DN | `LDAP_BASE_DN` | `dc=kobedenshi,dc=ac,dc=jp` |
-| テストユーザー | `TEST_USER` | |
-| テストパスワード | `TEST_PASSWORD` | |
+| 項目 | 変数 | 備考 |
+|------|------|------|
+| RADIUS shared secret | `vault_radius_secret` | FreeRADIUS へは `RADIUS_SECRET` |
+| LDAP admin password | `vault_ldap_admin_password` | FreeRADIUS へは `LDAP_BIND_PASSWORD` |
+| テストユーザーのパスワード | `vault_test_user_passwords` | `testuser1` / `testuser2` |
 
-Phase 2以降で追加される環境変数（`.env.example`にコメントアウトで記載済み）:
-- **Phase 2**: `GOOGLE_LDAP_CERT_FILE`, `GOOGLE_LDAP_KEY_FILE`, `GOOGLE_LDAP_USER`, `GOOGLE_LDAP_PASS`
-- **Phase 4**: `FLR_SERVER_1`, `FLR_SERVER_2`, `FLR_SECRET`
+LDAP組織名（`Kobe Denshi`）、ドメイン（`kobedenshi.ac.jp`）、Base DN（`dc=kobedenshi,dc=ac,dc=jp`）、テストユーザー（`testuser1@kobedenshi.ac.jp`）は `group_vars/all/main.yml` に記載する。
+
+Phase 2以降で追加する値（`inventories/proxmox/vault.yml.example`にコメントアウトで記載済み）:
+- **Phase 2**: `vault_google_ldap_user`, `vault_google_ldap_password`（FreeRADIUS へは `GOOGLE_LDAP_USER` / `GOOGLE_LDAP_PASS`）。クライアント証明書・鍵は `freeradius_google_ldap_cert_src` / `_key_src` で指定
+- **Phase 4**: `vault_flr_secret`（`freeradius_secret_env` に `FLR_SECRET` として追加）
 
 ## FreeRADIUS設定の注意事項
 
-- ストックの`radiusd.conf`を使用（カスタム版は持たない）。標準モジュール（pap, suffix, attr_filter等）はストックイメージのものをそのまま利用。
-- `mods-enabled/`と`sites-enabled/`のシンボリックリンクはDockerfile内で管理。ホスト側の`mods-enabled/`、`sites-enabled/`ディレクトリは使わない。
-- Phase切替時は`eduroam-inner-tunnel`内のldapモジュール参照を`ldap`→`ldap_google`に変更する。
+- Debian パッケージのレイアウト: 設定 `/etc/freeradius/3.0/`、バイナリ `freeradius`、ユーザー `freerad`。LDAP モジュールは `freeradius-ldap` パッケージ。
+- ストックの`radiusd.conf`を使用（カスタム版は持たない）。標準モジュール（pap, suffix, attr_filter, linelog等）はパッケージのものをそのまま利用。ストックの `default` / `inner-tunnel` サイトはロールが無効化する。
+- `mods-enabled/`と`sites-enabled/`のシンボリックリンクは freeradius ロールが管理する。
+- **Phase切替**は `group_vars/all/main.yml` の `freeradius_ldap_backend` を `openldap` → `google` に変える。有効化するモジュール（`ldap` / `ldap_google`）と inner-tunnel の参照・認証方式（`google` は LDAP bind）が連動して切り替わる。
+- `freeradius_ldap_auth_method`: `attribute`（userPassword を取得して PAP 照合、openldap の既定）/ `bind`（ユーザー DN で LDAP bind）。OpenLDAP で `bind` にすると Phase 2 と同じ認証経路を検証できる。
+- 内部トンネルは内部 Identity（`user@realm`）の realm を `freeradius_local_realms` と照合し、`mail` 属性で LDAP 検索する。
+- FreeRADIUS v3 には `Stripped-User-Realm` 属性がない（realm は `Realm`、ユーザー部は `Stripped-User-Name`）。空の `update` セクションは起動エラーになる。
+- テンプレート内で FreeRADIUS の `%{...}` を含む値を変数にする場合は `!unsafe` を付ける（Jinja2 が `{%` を解釈するため）。
 
 ## 検証フェーズ
 
@@ -204,7 +236,15 @@ CN = サーバのFQDN（例: radius.kobedenshi.ac.jp, radius.kic.ac.jp）
 
 ## シークレット管理
 
-証明書（`certs/`）と`.env`は`.gitignore`で除外済み。
-全てのシークレット（RADIUS共有シークレット、LDAPパスワード、テストユーザーパスワード）は`docker/.env`で管理する。
-FreeRADIUS設定ファイルでは`$ENV{VAR}`構文で環境変数を参照する。
-Google Workspace関連のシークレットはPhase 2で`.env`経由で管理する。
+全てのシークレット（RADIUS共有シークレット、LDAPパスワード、テストユーザーパスワード、Phase 2 以降の Google / FLR の認証情報）は `ansible/inventories/<環境>/group_vars/all/vault.yml` で管理する（`.gitignore` で除外済み）。共有・本番相当の環境では `ansible-vault encrypt` で暗号化する。
+
+- FreeRADIUS へは systemd の EnvironmentFile（`/etc/freeradius/eduroam.env`、root 0600）で渡し、設定ファイルからは `$ENV{VAR}` 構文で参照する。設定ファイル自体にシークレットを書かない。
+- 証明書・秘密鍵はリポジトリ外のコントローラ側ディレクトリ `~/.local/share/eduroam/<環境>/`（`EDUROAM_SECRETS_DIR` で変更可）に置く。検証用 PKI は `pki/` に lab_pki ロールが生成する。UPKI 証明書・Google LDAP クライアント証明書もここに置き、`freeradius_tls_*_src` / `freeradius_google_ldap_*_src` で指定する。WSL の `/mnt/c` は chmod が効かないため秘密鍵を置かない。
+- OpenTofu の state（`*.tfstate`）と `terraform.tfvars` は git-ignored。Proxmox の API トークンは環境変数 `PROXMOX_VE_API_TOKEN` で渡す。
+
+## ローカル検証環境（WSL2）の注意事項
+
+- WSL2 の mirrored ネットワークでは Windows 側が UDP/67 を使うため、Incus ブリッジ（`eduroambr0`）は DHCP を無効にし、cloud-init で固定 IP を配る（`images:debian/13/cloud` を使う）。
+- WSL 内で Docker が動いていると FORWARD ポリシーが DROP になる。`scripts/incus-host-setup.sh` が `eduroam-lab-forward.service` で `DOCKER-USER` に許可ルールを入れる。
+- `/mnt/c` 配下はワールド書き込み可能なため、カレントディレクトリの `ansible.cfg` は無視される。Makefile が `ANSIBLE_CONFIG` を設定する。
+- `incus-admin` グループ追加後は新しいログインセッションが必要（`wsl --terminate <distro>`）。

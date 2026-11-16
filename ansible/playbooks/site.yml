@@ -1,0 +1,55 @@
+---
+# eduroam RADIUS 環境の構成（OpenTofu が生成した inventory に対して実行する）
+
+- name: Check prerequisites on the controller
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Check that vault.yml is present
+      ansible.builtin.assert:
+        that:
+          - vault_radius_secret is defined
+        fail_msg: >-
+          シークレットが読み込めません。{{ inventory_dir | default('ansible/inventories/<環境>') }}/group_vars/all/vault.yml を
+          vault.yml.example から作成してください（make setup）。暗号化している場合は vault パスワードを指定してください。
+        quiet: true
+
+- name: Bootstrap Python on managed hosts
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Wait for cloud-init and install python3
+      ansible.builtin.raw: |
+        if command -v cloud-init >/dev/null 2>&1; then cloud-init status --wait >/dev/null 2>&1 || true; fi
+        if ! command -v python3 >/dev/null 2>&1; then
+          apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q python3 && echo PYTHON_INSTALLED
+        fi
+      register: _bootstrap
+      changed_when: "'PYTHON_INSTALLED' in _bootstrap.stdout"
+
+- name: Generate lab PKI on the controller
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Generate lab CA and RADIUS server certificate
+      ansible.builtin.include_role:
+        name: lab_pki
+      when: lab_pki_enabled | default(false) | bool
+
+- name: Configure test OpenLDAP
+  hosts: ldap_test
+  roles:
+    - openldap_test
+
+- name: Configure FreeRADIUS
+  hosts: radius
+  roles:
+    - freeradius
+
+- name: Configure test client
+  hosts: test_client
+  roles:
+    - radius_test_client
+...

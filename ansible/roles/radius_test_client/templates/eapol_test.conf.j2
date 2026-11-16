@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+# EAP-TTLS/PAP テスト設定
+# eapol_test -c {{ radius_test_client_conf_dir }}/{{ radius_test_client_conf.dest }} -s <secret> -a <server IP>
+network={
+    ssid="eduroam"
+    key_mgmt=WPA-EAP
+    eap=TTLS
+    anonymous_identity="{{ radius_test_client_anonymous_identity }}"
+    identity="{{ radius_test_client_conf.identity }}"
+    password="{{ radius_test_client_conf.password }}"
+    phase2="auth=PAP"
+{% if radius_test_client_ca_src | length > 0 %}
+    # サーバ証明書を CA と接続先ドメインで検証する
+    ca_cert="{{ radius_test_client_conf_dir }}/ca.crt"
+{% if radius_test_client_server_domain | length > 0 %}
+    domain_suffix_match="{{ radius_test_client_server_domain }}"
+{% endif %}
+{% endif %}
+}

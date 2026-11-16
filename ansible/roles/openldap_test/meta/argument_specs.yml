@@ -1,0 +1,60 @@
+---
+argument_specs:
+  main:
+    short_description: Phase 1 検証用の OpenLDAP（slapd）とテストユーザーを構成する
+    options:
+      openldap_test_domain:
+        type: str
+        description: slapd の初期構成に使うドメイン
+      openldap_test_organization:
+        type: str
+        description: 組織名
+      openldap_test_base_dn:
+        type: str
+        description: ベース DN
+      openldap_test_admin_dn:
+        type: str
+        description: 管理者 DN
+      openldap_test_admin_password:
+        type: str
+        no_log: true
+        description: 管理者パスワード
+      openldap_test_group:
+        type: dict
+        description: テストユーザーが所属するグループ
+        options:
+          cn:
+            type: str
+            required: true
+            description: グループ名
+          gid_number:
+            type: int
+            required: true
+            description: gidNumber
+      openldap_test_users:
+        type: list
+        elements: dict
+        description: テストユーザー
+        options:
+          uid:
+            type: str
+            required: true
+            description: uid
+          given_name:
+            type: str
+            required: true
+            description: givenName
+          uid_number:
+            type: int
+            required: true
+            description: uidNumber
+          mail:
+            type: raw
+            required: true
+            description: mail（文字列またはリスト）
+          password:
+            type: str
+            required: true
+            no_log: true
+            description: userPassword
+...

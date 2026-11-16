@@ -1,0 +1,126 @@
+---
+- name: Check role variables
+  ansible.builtin.assert:
+    that:
+      - openldap_test_admin_password | length > 0
+      - openldap_test_users | length > 0
+      - openldap_test_users | map(attribute='password') | select('equalto', '') | list | length == 0
+    fail_msg: openldap_test_admin_password / openldap_test_users（vault.yml）を設定してください。
+    quiet: true
+
+- name: Check whether slapd is installed
+  ansible.builtin.command:
+    cmd: dpkg-query -W -f=${Status} slapd
+  register: _openldap_test_slapd_status
+  changed_when: false
+  failed_when: false
+
+# slapd の初期構成（ベース DN・管理者）はパッケージ導入時の debconf 値で決まる
+- name: Preseed slapd
+  ansible.builtin.debconf:
+    name: slapd
+    question: "{{ openldap_test_debconf.question }}"
+    vtype: "{{ openldap_test_debconf.vtype }}"
+    value: "{{ openldap_test_debconf.value }}"
+  loop:
+    - { question: slapd/no_configuration, vtype: boolean, value: "false" }
+    - { question: slapd/domain, vtype: string, value: "{{ openldap_test_domain }}" }
+    - { question: shared/organization, vtype: string, value: "{{ openldap_test_organization }}" }
+    - { question: slapd/password1, vtype: password, value: "{{ openldap_test_admin_password }}" }
+    - { question: slapd/password2, vtype: password, value: "{{ openldap_test_admin_password }}" }
+    - { question: slapd/purge_database, vtype: boolean, value: "true" }
+    - { question: slapd/move_old_database, vtype: boolean, value: "true" }
+  loop_control:
+    loop_var: openldap_test_debconf
+  when: "'install ok installed' not in _openldap_test_slapd_status.stdout"
+  no_log: true
+
+- name: Install OpenLDAP packages
+  ansible.builtin.apt:
+    name:
+      - slapd
+      - ldap-utils
+      - python3-ldap
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable slapd service
+  ansible.builtin.systemd_service:
+    name: slapd
+    state: started
+    enabled: true
+
+- name: Manage directory entries
+  module_defaults:
+    community.general.ldap_entry: &ldap_auth
+      server_uri: ldap://localhost/
+      bind_dn: "{{ openldap_test_admin_dn }}"
+      bind_pw: "{{ openldap_test_admin_password }}"
+    community.general.ldap_attrs: *ldap_auth
+  block:
+    - name: Create organizational units
+      community.general.ldap_entry:
+        dn: ou={{ openldap_test_ou }},{{ openldap_test_base_dn }}
+        objectClass: organizationalUnit
+        attributes:
+          ou: "{{ openldap_test_ou }}"
+      loop:
+        - people
+        - groups
+      loop_control:
+        loop_var: openldap_test_ou
+
+    - name: Create test users
+      community.general.ldap_entry:
+        dn: uid={{ openldap_test_user.uid }},ou=people,{{ openldap_test_base_dn }}
+        objectClass:
+          - inetOrgPerson
+          - posixAccount
+          - shadowAccount
+        attributes:
+          uid: "{{ openldap_test_user.uid }}"
+          sn: Test
+          givenName: "{{ openldap_test_user.given_name }}"
+          cn: Test {{ openldap_test_user.given_name }}
+          displayName: Test {{ openldap_test_user.given_name }}
+          uidNumber: "{{ openldap_test_user.uid_number }}"
+          gidNumber: "{{ openldap_test_group.gid_number }}"
+          loginShell: /bin/bash
+          homeDirectory: /home/{{ openldap_test_user.uid }}
+          mail: "{{ openldap_test_user.mail }}"
+          userPassword: "{{ openldap_test_user.password }}"
+      loop: "{{ openldap_test_users }}"
+      loop_control:
+        loop_var: openldap_test_user
+        label: "{{ openldap_test_user.uid }}"
+      no_log: true
+
+    - name: Keep test user passwords and mail addresses in sync
+      community.general.ldap_attrs:
+        dn: uid={{ openldap_test_user.uid }},ou=people,{{ openldap_test_base_dn }}
+        attributes:
+          userPassword: "{{ openldap_test_user.password }}"
+          mail: "{{ openldap_test_user.mail }}"
+        state: exact
+      loop: "{{ openldap_test_users }}"
+      loop_control:
+        loop_var: openldap_test_user
+        label: "{{ openldap_test_user.uid }}"
+      no_log: true
+
+    - name: Create test group
+      community.general.ldap_entry:
+        dn: cn={{ openldap_test_group.cn }},ou=groups,{{ openldap_test_base_dn }}
+        objectClass: posixGroup
+        attributes:
+          cn: "{{ openldap_test_group.cn }}"
+          gidNumber: "{{ openldap_test_group.gid_number }}"
+
+    - name: Keep test group membership in sync
+      community.general.ldap_attrs:
+        dn: cn={{ openldap_test_group.cn }},ou=groups,{{ openldap_test_base_dn }}
+        attributes:
+          memberUid: "{{ openldap_test_users | map(attribute='uid') | list }}"
+        state: exact
+...
